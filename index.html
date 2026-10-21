@@ -425,28 +425,13 @@ function getProceduralTile(x, y) {
   if(Math.hypot(x - WORLD_DOOR_X, y - WORLD_DOOR_Y) < 15) elev = Math.max(elev, 0.45); // Terraformar Cueva
 
   let color = '#333';
-  let waterZone = 'none'; // 'none', 'shallow', 'mid_low', 'mid', 'deep'
-
-  if (elev < 0.25) { 
-    color = '#05111c'; waterZone = 'deep';       // Alta (Océano profundo, intransitable sin barco)
-  } else if (elev < 0.33) { 
-    color = '#0e2b40'; waterZone = 'mid';        // Media (Nado en aguas abiertas)
-  } else if (elev < 0.40) { 
-    color = '#1f4863'; waterZone = 'mid_low';    // Media Baja (Nado con fondo visible)
-  } else if (elev < 0.45) { 
-    color = '#4a7c8f'; waterZone = 'shallow';    // Baja (Vado costero a pie, pies hundidos)
-  } else if (elev < 0.47) { 
-    color = '#8f8164';                           // Playa / Orilla
-  } else {
-    if(temp < 0.25) color = '#cedce0'; 
-    else if(temp < 0.4) color = (moist > 0.5) ? '#475c44' : '#697063'; 
-    else if(temp > 0.7) color = (moist < 0.45) ? '#b07b41' : ((moist > 0.65) ? '#18381a' : '#8a7c49'); 
-    else color = (moist > 0.55) ? '#2e3d24' : '#575e3f'; 
+  if(elev < 0.35) color = '#081c2e'; 
+  else if(elev < 0.40) color = '#1a3c54'; 
+  else if(elev < 0.43) color = '#8f8164'; 
+  else {
+    if(temp < 0.25) color = '#cedce0'; else if(temp < 0.4) color = (moist > 0.5) ? '#475c44' : '#697063'; else if(temp > 0.7) color = (moist < 0.45) ? '#b07b41' : ((moist > 0.65) ? '#18381a' : '#8a7c49'); else color = (moist > 0.55) ? '#2e3d24' : '#575e3f'; 
   }
-
-  const tileData = { color, elev, waterZone };
-  tileCache.set(key, tileData); 
-  return tileData;
+  tileCache.set(key, color); return color;
 }
 
 // --- JUEGO PRINCIPAL ---
