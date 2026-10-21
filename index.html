@@ -586,11 +586,21 @@ function drawWorldItem(cCtx, item, screenX, screenY) {
 function drawMinimap() {
   const mCanv = document.getElementById('minimapCanvas'); const mCtx = mCanv.getContext('2d'); mCtx.clearRect(0,0, 160, 160);
   const px = Math.floor(player.worldX); const py = Math.floor(player.worldY);
+  
   for(let x = px - 20; x < px + 20; x++){
     for(let y = py - 20; y < py + 20; y++){
       if(STATE.explored.has(x+","+y)) {
-        let drawX = 80 + (x - px) * 4; let drawY = 80 + (y - py) * 4; mCtx.fillStyle = getProceduralTile(x, y).color; mCtx.fillRect(drawX, drawY, 4, 4);
-        if(Math.abs(x - WORLD_DOOR_X) < 1 && Math.abs(y - WORLD_DOOR_Y) < 1) { mCtx.fillStyle = '#000'; mCtx.fillRect(drawX, drawY, 6, 6); mCtx.strokeStyle = '#c49a5b'; mCtx.strokeRect(drawX, drawY, 6, 6); }
+        let drawX = 80 + (x - px) * 4; let drawY = 80 + (y - py) * 4; 
+        mCtx.fillStyle = getProceduralTile(x, y).color; 
+        mCtx.fillRect(drawX, drawY, 4, 4);
+
+        // Dibujar huella del Abrigo Rocoso (10x10 baldosas desde la puerta)
+        if(x >= WORLD_DOOR_X && x <= WORLD_DOOR_X + 2 && y >= WORLD_DOOR_Y - 1 && y <= WORLD_DOOR_Y + 1) {
+          mCtx.fillStyle = '#1f1a16'; // Tono roca de cueva
+          mCtx.fillRect(drawX, drawY, 4, 4);
+          mCtx.strokeStyle = '#c49a5b'; // Perfil dorado del hogar
+          mCtx.strokeRect(drawX, drawY, 4, 4);
+        }
       }
     }
   }
@@ -601,16 +611,46 @@ function renderWorldMap() {
   const wCanv = document.getElementById('macroMapCanvas'); const panel = document.querySelector('.map-body');
   wCanv.width = panel.clientWidth; wCanv.height = panel.clientHeight; const wCtx = wCanv.getContext('2d'); wCtx.clearRect(0,0, wCanv.width, wCanv.height);
   const cx = wCanv.width / 2; const cy = wCanv.height / 2; const scale = STATE.mapZoom;
+
   STATE.explored.forEach(tileKey => {
     let [x, y] = tileKey.split(',').map(Number); let drawX = cx + (x - player.worldX) * scale; let drawY = cy + (y - player.worldY) * scale;
-    if(drawX > -10 && drawX < wCanv.width+10 && drawY > -10 && drawY < wCanv.height+10) { wCtx.fillStyle = getProceduralTile(x, y).color; wCtx.fillRect(drawX, drawY, Math.max(1, 4 * scale), Math.max(1, 4 * scale)); }
+    if(drawX > -10 && drawX < wCanv.width+10 && drawY > -10 && drawY < wCanv.height+10) { 
+      wCtx.fillStyle = getProceduralTile(x, y).color; 
+      wCtx.fillRect(drawX, drawY, Math.max(1, 4 * scale), Math.max(1, 4 * scale)); 
+    }
   });
-  if (STATE.explored.has(Math.floor(WORLD_DOOR_X)+","+Math.floor(WORLD_DOOR_Y))) { let doorX = cx + (WORLD_DOOR_X - player.worldX) * scale; let doorY = cy + (WORLD_DOOR_Y - player.worldY) * scale; wCtx.fillStyle = '#c49a5b'; wCtx.beginPath(); wCtx.arc(doorX, doorY, Math.max(3, 10*scale), 0, Math.PI*2); wCtx.fill(); }
+
+  // Representación detallada de la Cueva / Abrigo Rocoso en el mapa macro
+  let doorKey = Math.floor(WORLD_DOOR_X) + "," + Math.floor(WORLD_DOOR_Y);
+  if (STATE.explored.has(doorKey)) { 
+    let doorX = cx + (WORLD_DOOR_X - player.worldX) * scale; 
+    let doorY = cy + (WORLD_DOOR_Y - player.worldY) * scale; 
+    
+    // Dibujar la planta rectangular del refugio de 10x10 baldosas
+    wCtx.fillStyle = 'rgba(31, 26, 22, 0.85)';
+    wCtx.strokeStyle = '#c49a5b';
+    wCtx.lineWidth = 1.5;
+    let caveWidth = 10 * scale;
+    let caveHeight = 10 * scale;
+    wCtx.fillRect(doorX - caveWidth, doorY - caveHeight/2, caveWidth, caveHeight);
+    wCtx.strokeRect(doorX - caveWidth, doorY - caveHeight/2, caveWidth, caveHeight);
+
+    // Etiqueta del Abrigo
+    wCtx.fillStyle = '#c49a5b';
+    wCtx.font = '10px Georgia';
+    wCtx.fillText("Abrigo Rocoso (Inicio)", doorX - caveWidth - 10, doorY - caveHeight/2 - 5);
+
+    // Monolito / Entrada
+    wCtx.fillStyle = '#c49a5b'; 
+    wCtx.beginPath(); 
+    wCtx.arc(doorX, doorY, Math.max(3, 8 * scale), 0, Math.PI*2); 
+    wCtx.fill(); 
+  }
+
+  // Posición del jugador
   wCtx.fillStyle = '#fff'; wCtx.beginPath(); wCtx.arc(cx, cy, Math.max(3, 8*scale), 0, Math.PI*2); wCtx.fill(); wCtx.strokeStyle = '#000'; wCtx.stroke();
 }
 
-function gameLoop(time) {
-  if (!canvas) return;
   if (!STATE.invOpen && !STATE.mapOpen) {
     let dx = 0, dy = 0; if (keys['w']) { dx -= 1; dy -= 1; } if (keys['s']) { dx += 1; dy += 1; } if (keys['a']) { dx -= 1; dy += 1; } if (keys['d']) { dx += 1; dy -= 1; }
     player.isMoving = (dx !== 0 || dy !== 0);
