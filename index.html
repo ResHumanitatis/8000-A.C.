@@ -636,7 +636,7 @@ function renderWorldMap() {
   wCtx.fillStyle = '#fff'; wCtx.beginPath(); wCtx.arc(cx, cy, Math.max(3, 8*scale), 0, Math.PI*2); wCtx.fill(); wCtx.strokeStyle = '#000'; wCtx.stroke();
 }
 
-  function gameLoop(time) {
+function gameLoop(time) {
   if (!canvas) return;
   
   if (STATE.mapOpen) {
