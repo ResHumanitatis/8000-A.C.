@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>8000 A.C. - Exploración y Terraformación</title>
+<style>
+  :root {
+    --ui-bg: #161412;
+    --ui-border: #3d3328;
+    --text-gold: #c49a5b;
+    --text-muted: #8a7a67;
+    --blood: #8c0c0c;
+    --trance: #1a6f8c;
+    --stone: #2c2825;
+    --slot-bg: #0a0806;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; font-family: 'Georgia', serif; }
+  body { background-color: #000; overflow: hidden; height: 100vh; width: 100vw; color: #fff; }
+
+  .screen { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #080706; flex-direction: column; align-items: center; justify-content: center; z-index: 5; }
+  .screen.active { display: flex; }
+
+  #screen-loading { background: #030202; z-index: 100; }
+  .spinner { width: 50px; height: 50px; border: 4px solid var(--ui-border); border-top: 4px solid var(--text-gold); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
+  @keyframes spin { 100% { transform: rotate(360deg); } }
+  .loading-text { font-size: 1.2rem; color: var(--text-gold); text-transform: uppercase; letter-spacing: 4px; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 50% { opacity: 0.5; } }
+  .cinematic-text { font-size: 1.8rem; color: var(--text-gold); text-align: center; opacity: 0; transition: opacity 1s ease-in-out; max-width: 800px; line-height: 1.5; }
+  .cinematic-text.visible { opacity: 1; }
+  .skip-btn { position: absolute; bottom: 30px; right: 30px; background: none; border: 1px solid var(--text-muted); color: var(--text-muted); padding: 8px 16px; cursor: pointer; border-radius: 4px; font-size: 0.9rem; }
+  .skip-btn:hover { border-color: #fff; color: #fff; }
+
+  h1 { color: var(--text-gold); font-size: 2.5rem; margin-bottom: 30px; text-transform: uppercase; letter-spacing: 4px; }
+  .grid-2x2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 800px; }
+  .card { background: var(--ui-bg); border: 2px solid var(--ui-border); padding: 20px; border-radius: 6px; cursor: pointer; text-align: center; transition: all 0.2s; }
+  .card:hover, .card.selected { border-color: var(--text-gold); background: #241f1a; box-shadow: 0 0 15px rgba(196,154,91,0.2); }
+  .card h3 { color: var(--text-gold); margin-bottom: 10px; }
+  .card p { font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; }
+  .btn { background: var(--ui-bg); border: 2px solid var(--text-gold); color: var(--text-gold); padding: 12px 30px; font-size: 1.1rem; cursor: pointer; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; margin-top: 30px; transition: all 0.2s; }
+  .btn:hover:not(:disabled) { background: var(--text-gold); color: #000; }
+  .btn:disabled { border-color: var(--text-muted); color: var(--text-muted); cursor: not-allowed; }
+
+  .char-layout { display: flex; gap: 40px; background: var(--ui-bg); padding: 30px; border: 2px solid var(--ui-border); border-radius: 6px; }
+  .char-col { display: flex; flex-direction: column; gap: 15px; width: 300px; }
+  .input-group label { font-size: 0.8rem; color: var(--text-gold); text-transform: uppercase; display: block; margin-bottom: 5px; }
+  input[type="text"] { width: 100%; background: #0a0806; border: 1px solid var(--ui-border); color: #fff; padding: 10px; font-size: 1rem; text-align: center; outline: none; }
+  .selector-row { display: flex; justify-content: space-between; align-items: center; background: #0a0806; padding: 10px; border: 1px solid var(--ui-border); }
+  .selector-btn { background: none; border: none; color: var(--text-gold); font-size: 1.2rem; cursor: pointer; }
+  .points-banner { text-align: center; color: var(--text-gold); font-size: 1.1rem; margin-bottom: 10px; border-bottom: 1px solid var(--ui-border); padding-bottom: 10px; }
+  .attr-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; margin-bottom: 5px; }
+  .attr-controls { display: flex; align-items: center; gap: 10px; }
+  .attr-btn { background: var(--ui-border); color: #fff; border: none; width: 24px; height: 24px; cursor: pointer; font-weight: bold; border-radius: 3px; }
+  .attr-val { width: 20px; text-align: center; color: var(--text-gold); font-weight: bold; }
+
+  #gameCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; outline: none; }
+  #ui-bottom { position: absolute; bottom: 0; width: 100%; height: 120px; background: linear-gradient(to top, var(--ui-bg), var(--stone)); border-top: 4px solid var(--ui-border); box-shadow: 0 -10px 30px rgba(0,0,0,0.9); z-index: 10; display: flex; justify-content: space-between; align-items: center; padding: 0 40px; }
+  .orb-container { position: relative; width: 130px; height: 130px; bottom: 15px; background: #0a0908; border-radius: 50%; border: 6px solid var(--ui-border); box-shadow: inset 0 0 20px rgba(0,0,0,0.9); overflow: hidden; display: flex; justify-content: center; }
+  .orb-liquid { position: absolute; bottom: 0; width: 100%; height: 100%; border-radius: 0 0 50% 50%; transition: height 0.3s; }
+  .health-liquid { background: radial-gradient(circle at 50% 30%, #a82020, var(--blood)); }
+  .trance-liquid { background: radial-gradient(circle at 50% 30%, #30b1db, var(--trance)); }
+  .orb-label { position: absolute; bottom: -20px; color: var(--text-muted); font-size: 0.75rem; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; }
+  #game-notifications { position: absolute; top: 30px; width: 100%; text-align: center; color: var(--text-gold); font-size: 1.2rem; z-index: 10; text-shadow: 0 2px 4px #000; opacity: 0; transition: opacity 0.5s; pointer-events: none;}
+  .inv-btn-hud { background: var(--ui-bg); border: 2px solid var(--text-muted); color: var(--text-muted); padding: 8px 15px; font-size: 0.8rem; cursor: pointer; border-radius: 4px; transition: all 0.2s; font-weight: bold; }
+  .inv-btn-hud:hover { border-color: var(--text-gold); color: var(--text-gold); }
+
+  #minimap-container { position: absolute; top: 20px; right: 20px; width: 180px; height: 180px; border-radius: 50%; border: 4px solid var(--ui-border); overflow: hidden; z-index: 10; background: #000; box-shadow: 0 0 20px rgba(0,0,0,0.9); display: none;}
+  #minimapCanvas { width: 100%; height: 100%; }
+  
+  #world-map-panel { display: none; position: absolute; top: 5%; left: 5%; width: 90%; height: 85%; background: rgba(10, 8, 6, 0.98); border: 2px solid var(--text-gold); box-shadow: 0 0 40px rgba(0,0,0,1); z-index: 60; border-radius: 8px; flex-direction: column; overflow: hidden; }
+  #world-map-panel.active { display: flex; }
+  .map-header { padding: 15px; border-bottom: 1px solid var(--ui-border); display: flex; justify-content: space-between; align-items: center; background: #110d0a; }
+  .map-title { font-size: 1.2rem; color: var(--text-gold); text-transform: uppercase; letter-spacing: 2px; }
+  .zoom-btn { background: #1a1612; border: 1px solid var(--text-muted); color: var(--text-gold); padding: 5px 15px; cursor: pointer; border-radius: 3px; font-weight: bold;}
+  .zoom-btn.active { border-color: var(--text-gold); background: #2c2218; color: #fff;}
+  .map-body { flex: 1; position: relative; background: #050403; display: flex; justify-content: center; align-items: center;}
+
+  #inventory-panel { display: none; position: absolute; top: 5%; left: 5%; width: 90%; height: 85%; background: rgba(18, 15, 12, 0.95); border: 2px solid var(--text-gold); box-shadow: 0 0 40px rgba(0,0,0,1); z-index: 50; border-radius: 8px; padding: 20px; flex-direction: row; gap: 20px; }
+  #inventory-panel.active { display: flex; }
+  .inv-col { flex: 1; background: var(--ui-bg); border: 1px solid var(--ui-border); padding: 15px; border-radius: 4px; display: flex; flex-direction: column; overflow-y: auto; }
+  .inv-header { font-size: 1.1rem; color: var(--text-gold); border-bottom: 1px solid var(--ui-border); padding-bottom: 10px; margin-bottom: 15px; text-transform: uppercase; text-align: center; letter-spacing: 1.5px;}
+  .close-btn { position: absolute; top: -15px; right: -15px; background: var(--blood); color: #fff; border: 2px solid var(--text-gold); width: 40px; height: 40px; border-radius: 50%; font-weight: bold; cursor: pointer; font-size: 1.2rem; z-index: 100;}
+  
+  .paperdoll { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .slot { background: var(--slot-bg); border: 1px solid var(--ui-border); height: 60px; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 4px; text-align: center; padding: 4px; position: relative;}
+  .slot.drag-over { border-color: #fff; background: rgba(255,255,255,0.1); }
+  .item-card { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: grab; background: #1c1610; border: 1px solid var(--text-gold); border-radius: 3px; }
+  .item-card:hover { background: #2b2118; border-color: #fff; }
+  .slot-name { font-size: 0.55rem; color: var(--text-muted); text-transform: uppercase; pointer-events: none;}
+  .slot-item { font-size: 0.7rem; color: #fff; font-weight: bold; margin-top: 4px; pointer-events: none;}
+  
+  .bags-container { display: flex; gap: 10px; justify-content: center; margin-bottom: 15px;}
+  .bag-slot { width: 40px; height: 40px; border: 1px solid var(--text-muted); background: var(--slot-bg); display: flex; justify-content: center; align-items: center; font-size: 0.7rem; border-radius: 4px;}
+  .bag-slot.active { border-color: var(--text-gold); background: #2b2118; }
+  
+  .inventory-grid-area { position: relative; width: 100%; max-width: 320px; background: #000; border: 1px solid var(--ui-border); margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 60px; gap: 4px; padding: 4px;}
+  .backpack-cell { background: var(--slot-bg); border: 1px solid #2a241e; position: relative; display: flex; justify-content: center; align-items: center; }
+  .backpack-cell.drag-over { border-color: var(--text-gold); background: rgba(196,154,91,0.2); }
+
+  .stat-group { margin-bottom: 15px; }
+  .stat-title { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 5px; }
+  .stat-line { display: flex; justify-content: space-between; background: var(--slot-bg); padding: 8px; border: 1px solid var(--ui-border); margin-bottom: 3px; font-size: 0.85rem; }
+  .stat-line span.val { color: var(--text-gold); font-weight: bold; font-family: monospace; font-size: 1rem; }
+  
+  .portrait-col { flex: 0.8; align-items: center; justify-content: center; position: relative; }
+  #portraitCanvas { background: #0a0806; border: 2px solid var(--ui-border); border-radius: 4px; width: 100%; height: 350px; box-shadow: inset 0 0 30px rgba(0,0,0,0.8); }
+  #inv-name-display { margin-top: 15px; font-size: 1.2rem; color: var(--text-gold); text-transform: uppercase; letter-spacing: 2px; }
+
+  #global-tooltip { display: none; position: absolute; background: #0e0b08; border: 1px solid var(--text-gold); padding: 12px; border-radius: 4px; z-index: 1000; box-shadow: 0 5px 15px rgba(0,0,0,0.9); width: 220px; pointer-events: none; }
+  #global-tooltip h4 { color: #fff; font-size: 0.95rem; margin-bottom: 5px; }
+  #global-tooltip .tt-stats { color: var(--text-gold); font-size: 0.8rem; margin-bottom: 8px; font-family: monospace; font-weight: bold;}
+  #global-tooltip .tt-desc { color: var(--text-muted); font-size: 0.75rem; line-height: 1.3; }
+</style>
+</head>
+<body>
+
+<div id="global-tooltip"><h4 id="tt-name">Objeto</h4><div class="tt-stats" id="tt-stats">Armadura: 0</div><div class="tt-desc" id="tt-desc">Desc</div></div>
+
+<div id="screen-loading" class="screen"><div class="spinner"></div><div class="loading-text" id="loading-msg">Generando...</div></div>
+<div id="screen-intro" class="screen active"><div id="intro-msg" class="cinematic-text"></div><button class="skip-btn" onclick="goToScreen('screen-biome')">Saltar Cinemática</button></div>
+
+<div id="screen-biome" class="screen">
+  <h1>Elige tu Cuna</h1>
+  <div class="grid-2x2">
+    <div class="card" onclick="selectBiome('fluvial')"><h3>Tierras Fluviales</h3><p>Valles de inundación. Abundancia botánica.</p></div>
+    <div class="card" onclick="selectBiome('bosque')"><h3>Bosque Templado</h3><p>Espesura sombría y bruma eterna.</p></div>
+    <div class="card" onclick="selectBiome('arida')"><h3>Estepa Árida</h3><p>El sol calcinó tu infancia. Cruza la arena.</p></div>
+    <div class="card" onclick="selectBiome('tundra')"><h3>Tundra Boreal</h3><p>El invierno no termina. El viento blanco te espera.</p></div>
+  </div>
+</div>
+
+<div id="screen-char" class="screen">
+  <h1>Registro del Clan</h1>
+  <div class="char-layout">
+    <div class="char-col">
+      <div class="input-group"><label>Nombre</label><input type="text" id="charName" placeholder="Escribe tu nombre..." autocomplete="off"></div>
+      <div class="input-group" style="margin-top: 10px;"><label>Sexo</label><div class="selector-row"><button class="selector-btn" onclick="cycleOption('sex', -1)">◄</button><span id="char-sex-lbl">Hombre</span><button class="selector-btn" onclick="cycleOption('sex', 1)">►</button></div></div>
+      <div class="input-group" style="margin-top: 10px;"><label>Piel</label><div class="selector-row"><button class="selector-btn" onclick="cycleOption('model', -1)">◄</button><span id="char-model-lbl">Variante 1</span><button class="selector-btn" onclick="cycleOption('model', 1)">►</button></div></div>
+    </div>
+    <div class="char-col"><div class="points-banner">Puntos Libres: <span id="ui-points">5</span></div><div id="ui-attrs"></div></div>
+  </div>
+  <button id="btn-crear" class="btn" onclick="finishCreation()" disabled>Despertar</button>
+</div>
+
+<div id="screen-outro" class="screen"><div id="outro-msg" class="cinematic-text"></div><button class="skip-btn" onclick="triggerLoading('screen-game', 'Cargando: Abrigo Rocoso')">Saltar</button></div>
+
+<div id="screen-game" class="screen">
+  <div id="game-notifications"></div>
+  <canvas id="gameCanvas" ondragover="allowDrop(event)" ondrop="dropToWorld(event)" oncontextmenu="handleRightClick(event)"></canvas>
+  <div id="minimap-container"><canvas id="minimapCanvas" width="160" height="160"></canvas></div>
+
+  <!-- MAPA MACRO [M] -->
+  <div id="world-map-panel">
+    <button class="close-btn" onclick="toggleMap()">X</button>
+    <div class="map-header">
+      <div class="map-title">Cartografía Global</div>
+      <div class="map-zoom-controls">
+        <button class="zoom-btn active" id="z-local" onclick="setMapZoom(2, 'z-local')">Local</button>
+        <button class="zoom-btn" id="z-region" onclick="setMapZoom(0.5, 'z-region')">Región</button>
+        <button class="zoom-btn" id="z-conti" onclick="setMapZoom(0.1, 'z-conti')">Continente</button>
+        <button class="zoom-btn" id="z-mundo" onclick="setMapZoom(0.02, 'z-mundo')">Planeta</button>
+      </div>
+    </div>
+    <div class="map-body"><canvas id="macroMapCanvas"></canvas></div>
+  </div>
+
+  <!-- INVENTARIO [I] -->
+  <div id="inventory-panel">
+    <button class="close-btn" onclick="toggleInventory()">X</button>
+    <div class="inv-col">
+      <div class="inv-header">Ficha Biológica y Combate</div>
+      <div class="stat-group">
+        <div class="stat-line"><span>Vida</span><span class="val" id="stat-hp">0</span></div>
+        <div class="stat-line"><span>Stamina</span><span class="val" id="stat-stam">0</span></div>
+        <div class="stat-line"><span>Trance</span><span class="val" id="stat-mana">0</span></div>
+      </div>
+      <div class="stat-group">
+        <div class="stat-line"><span>Armadura Física</span><span class="val" id="stat-armor">0</span></div>
+        <div class="stat-line"><span>Fuerza Impacto</span><span class="val" id="stat-force">0</span></div>
+        <div class="stat-line"><span>Evasión %</span><span class="val" id="stat-eva">0%</span></div>
+        <div class="stat-line"><span>Bloqueo %</span><span class="val" id="stat-blk">0%</span></div>
+      </div>
+      <div class="stat-group" style="margin-top:20px;">
+        <div class="stat-title">Núcleo Biológico</div>
+        <div class="stat-line"><span>Vigor</span><span class="val" id="stat-vigor">0</span></div>
+        <div class="stat-line"><span>Agilidad</span><span class="val" id="stat-agilidad">0</span></div>
+        <div class="stat-line"><span>Pericia</span><span class="val" id="stat-pericia">0</span></div>
+        <div class="stat-line"><span>Observación</span><span class="val" id="stat-observacion">0</span></div>
+        <div class="stat-line"><span>Intuición</span><span class="val" id="stat-intuicion">0</span></div>
+        <div class="stat-line"><span>Inteligencia</span><span class="val" id="stat-inteligencia">0</span></div>
+        <div class="stat-line"><span>Temple</span><span class="val" id="stat-temple">0</span></div>
+      </div>
+    </div>
+    
+    <div class="inv-col" style="flex: 1.2;">
+      <div class="inv-header">Cuerpo (Equipamiento)</div>
+      <div class="paperdoll" id="paperdoll-grid"></div>
+      <div class="inv-header" style="margin-top: 20px;">Mochila (12 Huecos)</div>
+      <div class="bags-container"><div class="bag-slot active">B1</div><div class="bag-slot active">B2</div><div class="bag-slot" style="border-style:dashed;opacity:0.5;">B3</div><div class="bag-slot" style="border-style:dashed;opacity:0.5;">B4</div></div>
+      <div class="inventory-grid-area" id="backpack-grid"></div>
+    </div>
+
+    <div class="inv-col portrait-col">
+      <div class="inv-header">Superviviente</div>
+      <canvas id="portraitCanvas" width="220" height="300"></canvas>
+      <div id="inv-name-display"></div>
+    </div>
+  </div>
+
+  <div id="ui-bottom">
+    <div style="position: relative; display: flex; justify-content: center;"><div class="orb-container"><div class="orb-liquid health-liquid" id="hud-hp"></div></div><div class="orb-label">Salud</div></div>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 5px;">
+      <div style="color: var(--text-muted); font-size: 0.75rem; text-align:center;">
+        [W A S D] MOVERSE | [ESPACIO] SALTAR | [I] INVENTARIO | [M] MAPA | [CLICK DER] RECOGER<br>
+      </div>
+      <div style="display: flex; gap:10px;">
+        <button class="inv-btn-hud" onclick="toggleInventory()">Ficha [I]</button>
+        <button class="inv-btn-hud" onclick="toggleMap()">Mapa [M]</button>
+      </div>
+    </div>
+    <div style="position: relative; display: flex; justify-content: center;"><div class="orb-container"><div class="orb-liquid trance-liquid" id="hud-mana"></div></div><div class="orb-label">Trance</div></div>
+  </div>
+</div>
+
+<script>
+// --- DATOS GLOBALES ---
+const BIOMES = {
+  fluvial: { startX: 6000, startY: 8500, name: "Tierras Fluviales", stats: { vigor: 3, agilidad: 2, pericia: 1, observacion: 2, intuicion: 2, inteligencia: 0, temple: 0 }, text: "Próximo Oriente. Tu viaje comienza.", gear: { pantalon: {id: 'g1', slotType:'pantalon', name: "Faldellín Junco", armor: 1, desc: "Tejido básico."}, cuello: {id: 'g2', slotType:'cuello', name: "Collar Arcilla", armor: 0, desc: "Protección del clan."} } },
+  bosque: { startX: 4500, startY: 6000, name: "Bosque Templado", stats: { vigor: 1, agilidad: 2, pericia: 2, observacion: 0, intuicion: 1, inteligencia: 2, temple: 2 }, text: "Europa Antigua. La espesura de robles.", gear: { pantalon: {id:'g3', slotType:'pantalon', name: "Calzones Corzo", armor: 1, desc: "Evita maleza."}, pecho: {id:'g4', slotType:'pecho', name: "Chaleco Cuero", armor: 1, desc: "Retiene calor."}, zapatos: {id:'g5', slotType:'zapatos', name: "Mocasines", armor: 1, desc: "Paso silencioso."} } },
+  arida: { startX: 4500, startY: 9000, name: "Estepa Árida", stats: { vigor: 1, agilidad: 3, pericia: 2, observacion: 0, intuicion: 2, inteligencia: 1, temple: 1 }, text: "Norte de África. El sol calcina.", gear: { pantalon: {id:'g6', slotType:'pantalon', name: "Piel Gacela", armor: 1, desc: "Ligero."}, cuello: {id:'g7', slotType:'cuello', name: "Collar Avestruz", armor: 0, desc: "Refleja rayos."}, amuleto: {id:'g8', slotType:'amuleto', name: "Piedra Ocre", armor: 0, desc: "Evita insolación."} } },
+  tundra: { startX: 8500, startY: 2000, name: "Tundra Boreal", stats: { vigor: 1, agilidad: 2, pericia: 0, observacion: 2, intuicion: 2, inteligencia: 2, temple: 1 }, text: "Beringia. El permafrost eterno.", gear: { cabeza: {id:'g9', slotType:'cabeza', name: "Gorro Zorro", armor: 1, desc: "Sella calor."}, pecho: {id:'g10', slotType:'pecho', name: "Túnica Reno", armor: 1, desc: "Piel gruesa."}, capa: {id:'g11', slotType:'capa', name: "Manto Doble", armor: 1, desc: "Cortavientos."}, pantalon: {id:'g12', slotType:'pantalon', name: "Forro Doble", armor: 1, desc: "Aislante."}, zapatos: {id:'g13', slotType:'zapatos', name: "Botas Musgo", armor: 0, desc: "No congelación."}, amuleto: {id:'g14', slotType:'amuleto', name: "Colmillo Oso", armor: 0, desc: "Valor."} } }
+};
+const ATTR_NAMES = ["vigor", "agilidad", "pericia", "observacion", "intuicion", "inteligencia", "temple"];
+const ATTR_LABELS = ["Vigor", "Agilidad", "Pericia", "Observación", "Intuición", "Inteligencia", "Temple"];
+const SLOTS = ["cabeza", "cuello", "hombros", "capa", "pecho", "cinturon", "guantes", "muñecas", "pantalon", "zapatos", "pendiente1", "pendiente2", "pendiente3", "anillo1", "anillo2", "amuleto", "mano_ppal", "mano_sec"];
+
+let STATE = { 
+  biome: null, freePoints: 5, assigned: { vigor: 0, agilidad: 0, pericia: 0, observacion: 0, intuicion: 0, inteligencia: 0, temple: 0 }, 
+  finalStats: {}, gear: {}, backpack: new Array(12).fill(null), explored: new Set(),
+  sexOpts: ["Hombre", "Mujer"], sexIdx: 0, modelOpts: ["#cf9f7c", "#8e532b", "#e6c2a5", "#4a2c1b"], modelIdx: 0, name: "", 
+  invOpen: false, mapOpen: false, mapZoom: 2
+};
+let WORLD_ITEMS = [];
+
+let draggedData = null;
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if(!document.getElementById('screen-game').classList.contains('active')) return;
+  if(e.key === 'i' || e.key === 'I') toggleInventory(); 
+  if(e.key === 'm' || e.key === 'M') toggleMap(); 
+  if(e.key === 'Escape') { STATE.invOpen = false; STATE.mapOpen = false; updateUIStates(); hideTooltip(); }
+});
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+// --- INVENTARIO LOGIC ---
+function dragStart(e, source, slotIndex, itemData) { draggedData = { source, slotIndex, item: itemData }; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', JSON.stringify(draggedData)); hideTooltip(); }
+function allowDrop(e) { e.preventDefault(); }
+function allowDropEquipment(e, slotType) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+function leaveDrop(e) { e.currentTarget.classList.remove('drag-over'); }
+
+function dropToEquipment(e, targetSlotType) {
+  e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+  if(!draggedData) return;
+  let item = draggedData.item;
+  let allowed = (item.slotType === targetSlotType) || (item.slotType === 'anillo' && targetSlotType.startsWith('anillo')) || (item.slotType === 'pendiente' && targetSlotType.startsWith('pendiente'));
+  if (!allowed) { showNotification("Ese objeto no va ahí."); return; }
+  let existingItem = STATE.gear[targetSlotType];
+  if (draggedData.source === 'backpack') STATE.backpack[draggedData.slotIndex] = null;
+  else if (draggedData.source === 'equipment') STATE.gear[draggedData.slotIndex] = null;
+  STATE.gear[targetSlotType] = item;
+  if (existingItem) {
+    if (draggedData.source === 'backpack') STATE.backpack[draggedData.slotIndex] = existingItem;
+    else if (draggedData.source === 'equipment') STATE.gear[draggedData.slotIndex] = existingItem;
+  }
+  draggedData = null; calculatePlayerStats();
+}
+
+function dropToBackpack(e, bpIndex) {
+  e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+  if(!draggedData) return;
+  let existingItem = STATE.backpack[bpIndex];
+  if (draggedData.source === 'equipment') STATE.gear[draggedData.slotIndex] = null;
+  else if (draggedData.source === 'backpack') STATE.backpack[draggedData.slotIndex] = null;
+  STATE.backpack[bpIndex] = draggedData.item;
+  if (existingItem) {
+    if (draggedData.source === 'equipment') STATE.gear[draggedData.slotIndex] = existingItem; 
+    else if (draggedData.source === 'backpack') STATE.backpack[draggedData.slotIndex] = existingItem;
+  }
+  draggedData = null; calculatePlayerStats();
+}
+
+function dropToWorld(e) {
+  e.preventDefault();
+  if(!draggedData) return;
+  let item = draggedData.item;
+  item.worldX = player.worldX + (Math.random() * 0.2 - 0.1);
+  item.worldY = player.worldY + (Math.random() * 0.2 - 0.1);
+  item.inCave = inCave; 
+  WORLD_ITEMS.push(item);
+  if (draggedData.source === 'equipment') STATE.gear[draggedData.slotIndex] = null;
+  else if (draggedData.source === 'backpack') STATE.backpack[draggedData.slotIndex] = null;
+  draggedData = null; calculatePlayerStats(); showNotification("Objeto arrojado.");
+}
+
+function handleRightClick(e) {
+  e.preventDefault();
+  if(!canvas || STATE.invOpen || STATE.mapOpen) return;
+  const rect = canvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top;
+  let camX = (player.worldX - player.worldY) * (TILE_W / 2); let camY = (player.worldX + player.worldY) * (TILE_H / 2);
+  const cx = width / 2; const cy = height / 2 - 50;
+
+  for(let i = WORLD_ITEMS.length - 1; i >= 0; i--) {
+    let item = WORLD_ITEMS[i];
+    if (item.inCave !== inCave) continue; 
+    const sx = (item.worldX - item.worldY) * (TILE_W / 2) - camX + cx; const sy = (item.worldX + item.worldY) * (TILE_H / 2) - camY + cy;
+    if(Math.hypot(mouseX - sx, mouseY - sy) < 40) {
+      let emptyIdx = STATE.backpack.findIndex(s => s === null);
+      if(emptyIdx !== -1) {
+        STATE.backpack[emptyIdx] = item; WORLD_ITEMS.splice(i, 1); calculatePlayerStats(); showNotification("Objeto recogido.");
+      } else showNotification("Mochila llena.");
+      return;
+    }
+  }
+}
+
+let hoveredWorldItem = null;
+window.addEventListener('mousemove', (e) => {
+  if(!canvas || STATE.invOpen || STATE.mapOpen) { hoveredWorldItem = null; return; }
+  const rect = canvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top;
+  let camX = (player.worldX - player.worldY) * (TILE_W / 2); let camY = (player.worldX + player.worldY) * (TILE_H / 2);
+  const cx = width / 2; const cy = height / 2 - 50;
+  hoveredWorldItem = null;
+  for(let item of WORLD_ITEMS) {
+    if (item.inCave !== inCave) continue;
+    const sx = (item.worldX - item.worldY) * (TILE_W / 2) - camX + cx; const sy = (item.worldX + item.worldY) * (TILE_H / 2) - camY + cy;
+    if(Math.hypot(mouseX - sx, mouseY - sy) < 40) { hoveredWorldItem = { item: item, x: sx, y: sy }; break; }
+  }
+});
+
+function showTooltip(e, name, armor, desc) { const tt = document.getElementById('global-tooltip'); document.getElementById('tt-name').innerText = name; document.getElementById('tt-stats').innerText = armor > 0 ? `Armadura: +${armor}` : 'Armadura: 0'; document.getElementById('tt-desc').innerText = desc || ''; tt.style.display = 'block'; moveTooltip(e); }
+function moveTooltip(e) { const tt = document.getElementById('global-tooltip'); tt.style.left = (e.clientX + 15) + 'px'; tt.style.top = (e.clientY + 15) + 'px'; }
+function hideTooltip() { document.getElementById('global-tooltip').style.display = 'none'; }
+
+// --- UI ESTADOS ---
+function toggleInventory() { STATE.invOpen = !STATE.invOpen; STATE.mapOpen = false; updateUIStates(); if(STATE.invOpen) calculatePlayerStats(); }
+function toggleMap() { STATE.mapOpen = !STATE.mapOpen; STATE.invOpen = false; updateUIStates(); if(STATE.mapOpen) renderWorldMap(); }
+function updateUIStates() {
+  document.getElementById('inventory-panel').classList.toggle('active', STATE.invOpen);
+  document.getElementById('world-map-panel').classList.toggle('active', STATE.mapOpen);
+  document.getElementById('minimap-container').style.display = (!inCave && !STATE.mapOpen && !STATE.invOpen) ? 'block' : 'none';
+}
+function setMapZoom(level, btnId) { STATE.mapZoom = level; document.querySelectorAll('.zoom-btn').forEach(b => b.classList.remove('active')); document.getElementById(btnId).classList.add('active'); renderWorldMap(); }
+
+// --- CREACIÓN Y FLUJO PANTALLAS ---
+function goToScreen(id) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); document.getElementById(id).classList.add('active'); if(id === 'screen-game') initGame(); }
+function triggerLoading(target, msg) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); document.getElementById('loading-msg').innerText = msg; document.getElementById('screen-loading').classList.add('active'); setTimeout(() => goToScreen(target), 1500); }
+let cinTimer; function playCinematic(txts, elId, next) { const el = document.getElementById(elId); let step=0; function n() { if(step>=txts.length){next();return;} el.classList.remove('visible'); setTimeout(()=>{el.innerText=txts[step]; el.classList.add('visible'); step++; cinTimer=setTimeout(n,3000);},1000);} n(); }
+
+playCinematic(["Año 8000 a.C. La Tierra no perdona.", "El mundo es vasto e inexplorado.", "Empieza tu leyenda."], 'intro-msg', () => goToScreen('screen-biome'));
+
+function selectBiome(id) { STATE.biome = id; STATE.freePoints = 5; for(let k in STATE.assigned) STATE.assigned[k]=0; renderStats(); goToScreen('screen-char'); }
+function cycleOption(t, d) { if(t==='sex') {STATE.sexIdx=(STATE.sexIdx+d+STATE.sexOpts.length)%STATE.sexOpts.length; document.getElementById('char-sex-lbl').innerText=STATE.sexOpts[STATE.sexIdx];} else {STATE.modelIdx=(STATE.modelIdx+d+STATE.modelOpts.length)%STATE.modelOpts.length; document.getElementById('char-model-lbl').innerText=`Piel ${STATE.modelIdx+1}`;} }
+function renderStats() { document.getElementById('ui-points').innerText=STATE.freePoints; const c=document.getElementById('ui-attrs'); c.innerHTML=""; let b=BIOMES[STATE.biome].stats; ATTR_NAMES.forEach((a,i)=>{c.innerHTML+=`<div class="attr-row"><span>${ATTR_LABELS[i]}</span><div class="attr-controls"><button class="attr-btn" onclick="modStat('${a}',-1)" ${STATE.assigned[a]<=0?'disabled':''}>-</button><div class="attr-val">${b[a]+STATE.assigned[a]}</div><button class="attr-btn" onclick="modStat('${a}',1)" ${STATE.freePoints<=0?'disabled':''}>+</button></div></div>`;}); checkForm(); }
+function modStat(a, d) { if(d>0 && STATE.freePoints>0){STATE.assigned[a]++; STATE.freePoints--;} else if(d<0 && STATE.assigned[a]>0){STATE.assigned[a]--; STATE.freePoints++;} renderStats(); }
+document.getElementById('charName').addEventListener('input', checkForm); function checkForm() { STATE.name=document.getElementById('charName').value.trim(); document.getElementById('btn-crear').disabled=STATE.name.length<3; }
+function finishCreation() { 
+  clearTimeout(cinTimer); STATE.gear = JSON.parse(JSON.stringify(BIOMES[STATE.biome].gear)); 
+  goToScreen('screen-outro'); playCinematic([BIOMES[STATE.biome].text], 'outro-msg', () => triggerLoading('screen-game', 'Cargando: Abrigo Rocoso')); 
+}
+
+function calculatePlayerStats() {
+  let base = BIOMES[STATE.biome].stats; let s = {}; ATTR_NAMES.forEach(a => s[a] = base[a] + STATE.assigned[a]); STATE.finalStats = s;
+  let totalArmor = 0; for(let key in STATE.gear) { if(STATE.gear[key]) totalArmor += (STATE.gear[key].armor || 0); }
+  STATE.hp = 100 + (s.vigor * 10) + (s.temple * 5); STATE.stam = 100 + (s.vigor * 5) + (s.agilidad * 5); STATE.mana = 50 + (s.inteligencia * 10) + (s.intuicion * 5);
+  STATE.armor = totalArmor; STATE.force = s.vigor + s.pericia; STATE.evasion = ((s.agilidad + s.intuicion) * 0.6).toFixed(1); STATE.block = ((s.temple + s.intuicion) * 0.6).toFixed(1);
+  if(STATE.invOpen) updateInventoryUI();
+}
+
+function updateInventoryUI() {
+  document.getElementById('stat-hp').innerText = STATE.hp; document.getElementById('stat-stam').innerText = STATE.stam; document.getElementById('stat-mana').innerText = STATE.mana;
+  ATTR_NAMES.forEach(a => { let el = document.getElementById('stat-'+a); if(el) el.innerText = STATE.finalStats[a]; });
+  document.getElementById('stat-armor').innerText = STATE.armor; document.getElementById('stat-force').innerText = STATE.force; document.getElementById('stat-eva').innerText = STATE.evasion + "%"; document.getElementById('stat-blk').innerText = STATE.block + "%";
+  
+  let grid = document.getElementById('paperdoll-grid'); grid.innerHTML = "";
+  SLOTS.forEach(slot => { 
+    let item = STATE.gear[slot]; 
+    if(item) grid.innerHTML += `<div class="slot filled" ondragover="allowDropEquipment(event, '${slot}')" ondragleave="leaveDrop(event)" ondrop="dropToEquipment(event, '${slot}')"><div class="item-card" draggable="true" ondragstart="dragStart(event, 'equipment', '${slot}', ${JSON.stringify(item).replace(/"/g, '&quot;')})" onmouseenter="showTooltip(event, '${item.name}', ${item.armor}, '${item.desc}')" onmousemove="moveTooltip(event)" onmouseleave="hideTooltip()"><span class="slot-name">${slot.replace('_',' ')}</span><span class="slot-item">${item.name}</span></div></div>`;
+    else grid.innerHTML += `<div class="slot" ondragover="allowDropEquipment(event, '${slot}')" ondragleave="leaveDrop(event)" ondrop="dropToEquipment(event, '${slot}')"><span class="slot-name">${slot.replace('_',' ')}</span><span class="slot-item">—</span></div>`;
+  });
+
+  let bpGrid = document.getElementById('backpack-grid'); bpGrid.innerHTML = "";
+  for(let i=0; i<12; i++) {
+    let item = STATE.backpack[i];
+    if(item) bpGrid.innerHTML += `<div class="backpack-cell" ondragover="allowDropEquipment(event, 'any')" ondragleave="leaveDrop(event)" ondrop="dropToBackpack(event, ${i})"><div class="item-card" draggable="true" ondragstart="dragStart(event, 'backpack', ${i}, ${JSON.stringify(item).replace(/"/g, '&quot;')})" onmouseenter="showTooltip(event, '${item.name}', ${item.armor}, '${item.desc}')" onmousemove="moveTooltip(event)" onmouseleave="hideTooltip()"><span class="slot-item" style="font-size:0.6rem;">${item.name}</span></div></div>`;
+    else bpGrid.innerHTML += `<div class="backpack-cell" ondragover="allowDropEquipment(event, 'any')" ondragleave="leaveDrop(event)" ondrop="dropToBackpack(event, ${i})"></div>`;
+  }
+  updatePortrait();
+}
+
+function updatePortrait() {
+  const pCanvas = document.getElementById('portraitCanvas'); if(!pCanvas) return;
+  const pCtx = pCanvas.getContext('2d'); pCtx.clearRect(0,0, pCanvas.width, pCanvas.height);
+  pCtx.save(); pCtx.scale(2.5, 2.5);
+  let pSkin = STATE.modelOpts[STATE.modelIdx]; let pCloth = STATE.gear['pecho'] ? '#4d3d2e' : (STATE.gear['pantalon'] ? '#7a5a41' : 'transparent');
+  drawHumanoid(pCtx, pCanvas.width/(2*2.5), 80, 0, pSkin, pCloth, false, Math.PI/2, 0); 
+  pCtx.restore(); document.getElementById('inv-name-display').innerText = STATE.name.toUpperCase();
+}
+
+// --- MAPA PROCEDURAL CORE ---
+function hash(x, y) { let h = Math.sin(x*12.9898 + y*78.233) * 43758.5453; return h - Math.floor(h); }
+function noise(x, y) { let ix=Math.floor(x), iy=Math.floor(y); let fx=x-ix, fy=y-iy; let a=hash(ix,iy), b=hash(ix+1,iy), c=hash(ix,iy+1), d=hash(ix+1,iy+1); let ux=fx*fx*(3-2*fx), uy=fy*fy*(3-2*fy); return a*(1-ux)*(1-uy) + b*ux*(1-uy) + c*(1-ux)*uy + d*ux*uy; }
+function fbm(x, y, octs) { let v=0, a=0.5, f=1; for(let i=0; i<octs; i++){ v+=a*noise(x*f,y*f); f*=2; a*=0.5;} return v; }
+
+const tileCache = new Map();
+function getProceduralTile(x, y) {
+  let key = x + "," + y; if(tileCache.has(key)) return tileCache.get(key);
+  let lat = (y - 10000) / 10000; 
+  let elev = fbm(x*0.01, y*0.01, 3); 
+  let moist = fbm(x*0.02 + 50, y*0.02 + 50, 2); 
+  let tempBase = 1.0 - Math.abs(lat); 
+  let temp = tempBase + (fbm(x*0.05, y*0.05, 2) * 0.3 - 0.15); 
+  
+  if(Math.hypot(x - WORLD_DOOR_X, y - WORLD_DOOR_Y) < 15) elev = Math.max(elev, 0.45); // Terraformar Cueva
+
+  let color = '#333';
+  if(elev < 0.35) color = '#081c2e'; 
+  else if(elev < 0.40) color = '#1a3c54'; 
+  else if(elev < 0.43) color = '#8f8164'; 
+  else {
+    if(temp < 0.25) color = '#cedce0'; else if(temp < 0.4) color = (moist > 0.5) ? '#475c44' : '#697063'; else if(temp > 0.7) color = (moist < 0.45) ? '#b07b41' : ((moist > 0.65) ? '#18381a' : '#8a7c49'); else color = (moist > 0.55) ? '#2e3d24' : '#575e3f'; 
+  }
+  tileCache.set(key, color); return color;
+}
+
+// --- JUEGO PRINCIPAL ---
+let canvas, ctx, width, height; const TILE_W = 100, TILE_H = 50;
+let inCave = true; let WORLD_DOOR_X = 0, WORLD_DOOR_Y = 0; const CAVE_DOOR_X = 10;
+let player = { worldX: 2, worldY: 5, z: 0, vz: 0, speed: 1.2, isMoving: false, angle: 0 }; 
+const GRAVITY = 0.8, JUMP_FORCE = 12;
+
+function initGame() {
+  canvas = document.getElementById('gameCanvas'); ctx = canvas.getContext('2d');
+  WORLD_DOOR_X = BIOMES[STATE.biome].startX; WORLD_DOOR_Y = BIOMES[STATE.biome].startY;
+  calculatePlayerStats(); 
+  function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
+  window.addEventListener('resize', resize); resize();
+  requestAnimationFrame(gameLoop);
+}
+
+function transitionZone() { 
+  for(let k in keys) keys[k] = false; player.isMoving=false; 
+  if(inCave){
+    triggerLoading('screen-game', 'Cargando: Mundo Exterior'); 
+    setTimeout(()=>{ 
+      inCave=false; player.worldX=WORLD_DOOR_X+1.5; player.worldY=WORLD_DOOR_Y; 
+      // Despejar niebla base
+      for(let ex = Math.floor(player.worldX)-12; ex < player.worldX+12; ex++) {
+        for(let ey = Math.floor(player.worldY)-12; ey < player.worldY+12; ey++) {
+          if(Math.hypot(ex-player.worldX, ey-player.worldY) < 12) STATE.explored.add(ex+","+ey);
+        }
+      }
+      updateUIStates(); showNotification("Sientes el viento. Sobrevive."); 
+    }, 1500);
+  } else {
+    triggerLoading('screen-game', 'Cargando: Abrigo Rocoso'); 
+    setTimeout(()=>{ inCave=true; player.worldX=CAVE_DOOR_X-1.5; player.worldY=5; updateUIStates(); showNotification("Has vuelto al calor del hogar."); }, 1500);
+  } 
+}
+
+function getCaveTile(x, y) { if(x>=0 && x<=10 && y>=0 && y<=10) return '#1f1a16'; return null; }
+
+function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset) {
+  let visualY = cy - z; let walkCycle = isMoving ? Math.sin(timeOffset * 0.015) : 0; let breathe = !isMoving ? Math.sin(timeOffset * 0.005) * 2 : 0;
+  let dirX = Math.cos(angle); let dirY = Math.sin(angle); cCtx.lineCap = "round";
+  let swing = walkCycle * 14; let lx = cx - 6, rx = cx + 6;
+  cCtx.lineWidth = 5; cCtx.strokeStyle = skin;
+  cCtx.beginPath(); cCtx.moveTo(lx, visualY - 20); cCtx.lineTo(lx + dirX * swing, visualY + dirY * swing * 0.5); cCtx.stroke();
+  cCtx.beginPath(); cCtx.moveTo(rx, visualY - 20); cCtx.lineTo(rx - dirX * swing, visualY - dirY * swing * 0.5); cCtx.stroke();
+  let lean = isMoving ? 3 : 0;
+  if(cloth !== 'transparent') { cCtx.fillStyle = cloth; cCtx.beginPath(); cCtx.moveTo(cx - 12 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 12 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 8, visualY - 18 + breathe); cCtx.lineTo(cx - 8, visualY - 18 + breathe); cCtx.fill(); } 
+  else { cCtx.fillStyle = skin; cCtx.beginPath(); cCtx.moveTo(cx - 10 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 10 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 6, visualY - 18 + breathe); cCtx.lineTo(cx - 6, visualY - 18 + breathe); cCtx.fill(); }
+  cCtx.lineWidth = 4; cCtx.strokeStyle = skin;
+  cCtx.beginPath(); cCtx.moveTo(cx - 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx - 14 - dirX * swing, visualY - 18 - dirY * swing*0.5 + breathe); cCtx.stroke();
+  cCtx.beginPath(); cCtx.moveTo(cx + 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx + 14 + dirX * swing, visualY - 18 + dirY * swing*0.5 + breathe); cCtx.stroke();
+  cCtx.fillStyle = skin; let hx = cx + dirX * 4; let hy = visualY - 54 + breathe + dirY * 2; cCtx.beginPath(); cCtx.arc(hx, hy, 9, 0, Math.PI * 2); cCtx.fill();
+  cCtx.fillStyle = '#111'; cCtx.beginPath(); cCtx.arc(hx, hy - 2, 9, Math.PI * 0.9, Math.PI * 2.1); cCtx.fill();
+}
+
+function drawWorldItem(cCtx, item, screenX, screenY) {
+  cCtx.save(); cCtx.fillStyle = 'rgba(0,0,0,0.5)'; cCtx.beginPath(); cCtx.ellipse(screenX, screenY+5, 10, 5, 0, 0, Math.PI*2); cCtx.fill();
+  cCtx.lineWidth = 1; cCtx.strokeStyle = '#fff';
+  if(item.slotType === 'pecho' || item.slotType === 'capa') { cCtx.fillStyle = '#6b543c'; cCtx.fillRect(screenX-8, screenY-10, 16, 15); cCtx.strokeRect(screenX-8, screenY-10, 16, 15); } 
+  else if(item.slotType === 'pantalon') { cCtx.fillStyle = '#4a331c'; cCtx.fillRect(screenX-6, screenY-5, 5, 10); cCtx.fillRect(screenX+1, screenY-5, 5, 10); } 
+  else if(item.slotType === 'amuleto' || item.slotType === 'cuello' || item.slotType === 'cabeza') { cCtx.fillStyle = '#d43b24'; cCtx.beginPath(); cCtx.arc(screenX, screenY-3, 5, 0, Math.PI*2); cCtx.fill(); cCtx.stroke(); } 
+  else { cCtx.fillStyle = '#8c7a65'; cCtx.beginPath(); cCtx.moveTo(screenX, screenY-5); cCtx.lineTo(screenX+5, screenY+5); cCtx.lineTo(screenX-5, screenY+5); cCtx.fill(); }
+  cCtx.restore();
+}
+
+function drawMinimap() {
+  const mCanv = document.getElementById('minimapCanvas'); const mCtx = mCanv.getContext('2d'); mCtx.clearRect(0,0, 160, 160);
+  const px = Math.floor(player.worldX); const py = Math.floor(player.worldY);
+  for(let x = px - 20; x < px + 20; x++){
+    for(let y = py - 20; y < py + 20; y++){
+      if(STATE.explored.has(x+","+y)) {
+        let drawX = 80 + (x - px) * 4; let drawY = 80 + (y - py) * 4; mCtx.fillStyle = getProceduralTile(x, y); mCtx.fillRect(drawX, drawY, 4, 4);
+        if(Math.abs(x - WORLD_DOOR_X) < 1 && Math.abs(y - WORLD_DOOR_Y) < 1) { mCtx.fillStyle = '#000'; mCtx.fillRect(drawX, drawY, 6, 6); mCtx.strokeStyle = '#c49a5b'; mCtx.strokeRect(drawX, drawY, 6, 6); }
+      }
+    }
+  }
+  mCtx.fillStyle = '#fff'; mCtx.beginPath(); mCtx.arc(80, 80, 3, 0, Math.PI*2); mCtx.fill();
+}
+
+function renderWorldMap() {
+  const wCanv = document.getElementById('macroMapCanvas'); const panel = document.querySelector('.map-body');
+  wCanv.width = panel.clientWidth; wCanv.height = panel.clientHeight; const wCtx = wCanv.getContext('2d'); wCtx.clearRect(0,0, wCanv.width, wCanv.height);
+  const cx = wCanv.width / 2; const cy = wCanv.height / 2; const scale = STATE.mapZoom;
+  STATE.explored.forEach(tileKey => {
+    let [x, y] = tileKey.split(',').map(Number); let drawX = cx + (x - player.worldX) * scale; let drawY = cy + (y - player.worldY) * scale;
+    if(drawX > -10 && drawX < wCanv.width+10 && drawY > -10 && drawY < wCanv.height+10) { wCtx.fillStyle = getProceduralTile(x, y); wCtx.fillRect(drawX, drawY, Math.max(1, 4 * scale), Math.max(1, 4 * scale)); }
+  });
+  if (STATE.explored.has(Math.floor(WORLD_DOOR_X)+","+Math.floor(WORLD_DOOR_Y))) { let doorX = cx + (WORLD_DOOR_X - player.worldX) * scale; let doorY = cy + (WORLD_DOOR_Y - player.worldY) * scale; wCtx.fillStyle = '#c49a5b'; wCtx.beginPath(); wCtx.arc(doorX, doorY, Math.max(3, 10*scale), 0, Math.PI*2); wCtx.fill(); }
+  wCtx.fillStyle = '#fff'; wCtx.beginPath(); wCtx.arc(cx, cy, Math.max(3, 8*scale), 0, Math.PI*2); wCtx.fill(); wCtx.strokeStyle = '#000'; wCtx.stroke();
+}
+
+function gameLoop(time) {
+  if (!canvas) return;
+  if (!STATE.invOpen && !STATE.mapOpen) {
+    let dx = 0, dy = 0; if (keys['w']) { dx -= 1; dy -= 1; } if (keys['s']) { dx += 1; dy += 1; } if (keys['a']) { dx -= 1; dy += 1; } if (keys['d']) { dx += 1; dy -= 1; }
+    player.isMoving = (dx !== 0 || dy !== 0);
+    if (player.isMoving) {
+      let screenDx = (dx - dy); let screenDy = (dx + dy); player.angle = Math.atan2(screenDy, screenDx);
+      let length = Math.sqrt(dx*dx + dy*dy); let nextX = player.worldX + (dx / length) * (player.speed / 10); let nextY = player.worldY + (dy / length) * (player.speed / 10);
+      if (inCave) {
+        if(nextX < 0) nextX = 0; if(nextY < 0) nextY = 0; if(nextY > 10) nextY = 10;
+        if(nextX > 9.5) { if(nextY >= 4 && nextY <= 6) { transitionZone(); return; } else { nextX = 9.5; } }
+        player.worldX = nextX; player.worldY = nextY;
+      } else {
+        let destColor = getProceduralTile(nextX, nextY);
+        if(destColor === '#081c2e' || destColor === '#1a3c54') { /* Océano, colisión */ } else {
+          if(Math.abs(nextX-WORLD_DOOR_X)<1 && Math.abs(nextY-WORLD_DOOR_Y)<1){ transitionZone(); return; }
+          player.worldX = nextX; player.worldY = nextY;
+          for(let ex = Math.floor(player.worldX)-8; ex < player.worldX+8; ex++) {
+            for(let ey = Math.floor(player.worldY)-8; ey < player.worldY+8; ey++) {
+              if(Math.hypot(ex-player.worldX, ey-player.worldY) < 8) STATE.explored.add(ex+","+ey);
+            }
+          }
+        }
+      }
+    }
+    if (keys[' '] && player.z === 0) player.vz = JUMP_FORCE;
+  } else { player.isMoving = false; }
+  
+  player.z += player.vz; if (player.z > 0) player.vz -= GRAVITY; else { player.z = 0; player.vz = 0; }
+  if(!inCave && !STATE.invOpen && !STATE.mapOpen && Math.floor(time) % 10 < 2) drawMinimap(); 
+
+  let camX = (player.worldX - player.worldY) * (TILE_W / 2); let camY = (player.worldX + player.worldY) * (TILE_H / 2);
+  ctx.fillStyle = '#020202'; ctx.fillRect(0, 0, width, height); const cx = width / 2; const cy = height / 2 - 50;
+
+  const startX = Math.floor(player.worldX) - 15; const endX = startX + 30; const startY = Math.floor(player.worldY) - 15; const endY = startY + 30;
+
+  for (let x = startX; x < endX; x++) {
+    for (let y = startY; y < endY; y++) {
+      let tileColor = inCave ? getCaveTile(x, y) : getProceduralTile(x, y);
+      if (!tileColor) continue; 
+      if(!inCave && !STATE.explored.has(x+","+y)) continue; 
+      const sx = (x - y) * (TILE_W / 2) - camX + cx; const sy = (x + y) * (TILE_H / 2) - camY + cy;
+      if (sx < -TILE_W || sx > width + TILE_W || sy < -TILE_H || sy > height + TILE_H) continue;
+      
+      ctx.beginPath(); ctx.moveTo(sx, sy - TILE_H / 2); ctx.lineTo(sx + TILE_W / 2, sy); ctx.lineTo(sx, sy + TILE_H / 2); ctx.lineTo(sx - TILE_W / 2, sy); ctx.closePath();
+      ctx.fillStyle = tileColor; ctx.fill(); ctx.strokeStyle = inCave ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.05)'; ctx.stroke();
+    }
+  }
+
+  // Dibujar el Monolito de Salida en el Mundo Exterior
+  if (!inCave && STATE.explored.has(Math.floor(WORLD_DOOR_X)+","+Math.floor(WORLD_DOOR_Y))) { 
+    const doorSx = (WORLD_DOOR_X - WORLD_DOOR_Y) * (TILE_W / 2) - camX + cx; 
+    const doorSy = (WORLD_DOOR_X + WORLD_DOOR_Y) * (TILE_H / 2) - camY + cy; 
+    ctx.fillStyle = '#0a0806'; ctx.fillRect(doorSx - 25, doorSy - 70, 50, 70); 
+    ctx.strokeStyle = '#c49a5b'; ctx.lineWidth = 2; ctx.strokeRect(doorSx - 25, doorSy - 70, 50, 70);
+  }
+  
+  WORLD_ITEMS.forEach(item => {
+    if(item.inCave === inCave) {
+      if(!inCave && !STATE.explored.has(Math.floor(item.worldX)+","+Math.floor(item.worldY))) return;
+      const sx = (item.worldX - item.worldY) * (TILE_W / 2) - camX + cx; const sy = (item.worldX + item.worldY) * (TILE_H / 2) - camY + cy; drawWorldItem(ctx, item, sx, sy);
+    }
+  });
+
+  if (inCave) {
+    const npcs = [{x: 6, y: 4, skin: '#c29b7a', cloth: '#3d3a35', phase: 0}, {x: 7, y: 6, skin: '#a67246', cloth: '#4a3222', phase: 1}, {x: 5, y: 7, skin: '#855127', cloth: '#3a271d', phase: 2}];
+    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; const fireY = (6 + 5) * (TILE_H / 2) - camY + cy;
+    ctx.fillStyle = '#1c100b'; ctx.fillRect(fireX - 15, fireY - 10, 30, 10);
+    const fireHeight = 20 + Math.sin(time * 0.02) * 5; ctx.fillStyle = '#e85c13'; ctx.beginPath(); ctx.moveTo(fireX, fireY - fireHeight - 10); ctx.lineTo(fireX + 10, fireY - 5); ctx.lineTo(fireX - 10, fireY - 5); ctx.fill();
+    npcs.forEach(npc => {
+      const nx = (npc.x - npc.y) * (TILE_W / 2) - camX + cx; const ny = (npc.x + npc.y) * (TILE_H / 2) - camY + cy;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(nx, ny, 16, 8, 0, 0, Math.PI * 2); ctx.fill(); 
+      drawHumanoid(ctx, nx, ny, 0, npc.skin, npc.cloth, false, Math.PI/2, time + (npc.phase * 1000));
+    });
+  }
+
+  let shadowScale = Math.max(0.4, 1 - (player.z / 80)); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.ellipse(cx, cy, 20 * shadowScale, 10 * shadowScale, 0, 0, Math.PI * 2); ctx.fill();
+  let pSkin = STATE.modelOpts[STATE.modelIdx]; let pCloth = STATE.gear['pecho'] ? '#4d3d2e' : (STATE.gear['pantalon'] ? '#7a5a41' : 'transparent');
+  drawHumanoid(ctx, cx, cy, player.z, pSkin, pCloth, player.isMoving, player.angle, time);
+
+  if(hoveredWorldItem && !STATE.invOpen && !STATE.mapOpen) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; let txtW = ctx.measureText(hoveredWorldItem.item.name).width + 10; ctx.fillRect(hoveredWorldItem.x - txtW/2, hoveredWorldItem.y - 35, txtW, 20); ctx.fillStyle = '#c49a5b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(hoveredWorldItem.item.name, hoveredWorldItem.x, hoveredWorldItem.y - 21);
+  }
+
+  const darkOverlay = document.createElement('canvas'); darkOverlay.width = width; darkOverlay.height = height; const dCtx = darkOverlay.getContext('2d');
+  dCtx.fillStyle = 'rgba(4, 3, 2, 0.97)'; dCtx.fillRect(0, 0, width, height);
+  dCtx.globalCompositeOperation = 'destination-out';
+  const playerLight = 150 + Math.sin(time * 0.015) * 8; let visualY = cy - player.z;
+  const pGrad = dCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight); pGrad.addColorStop(0, 'rgba(255,255,255,1)'); pGrad.addColorStop(0.5, 'rgba(255,255,255,0.5)'); pGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  dCtx.fillStyle = pGrad; dCtx.beginPath(); dCtx.arc(cx, visualY - 20, playerLight, 0, Math.PI * 2); dCtx.fill();
+
+  if (inCave) {
+    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; const fireY = (6 + 5) * (TILE_H / 2) - camY + cy; const fireLight = 350 + Math.sin(time * 0.01) * 15;
+    const fGrad = dCtx.createRadialGradient(fireX, fireY - 10, 20, fireX, fireY - 10, fireLight); fGrad.addColorStop(0, 'rgba(255,255,255,1)'); fGrad.addColorStop(0.6, 'rgba(255,255,255,0.4)'); fGrad.addColorStop(1, 'rgba(255,255,255,0)'); dCtx.fillStyle = fGrad; dCtx.beginPath(); dCtx.arc(fireX, fireY - 10, fireLight, 0, Math.PI * 2); dCtx.fill();
+  }
+  
+  dCtx.globalCompositeOperation = 'source-over';
+  const glow = dCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight * 0.8); glow.addColorStop(0, 'rgba(224, 123, 40, 0.15)'); glow.addColorStop(1, 'rgba(224, 80, 20, 0)'); dCtx.fillStyle = glow; dCtx.beginPath(); dCtx.arc(cx, visualY - 20, playerLight * 0.8, 0, Math.PI * 2); dCtx.fill();
+  ctx.drawImage(darkOverlay, 0, 0);
+
+  requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
