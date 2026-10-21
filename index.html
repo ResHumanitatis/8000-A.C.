@@ -663,19 +663,27 @@ function gameLoop(time) {
       let nextY = player.worldY + (dy / length) * (moveSpeed / 10);
       
       if (inCave) {
-        if (nextX < 0) nextX = 0; 
-        if (nextY < 0) nextY = 0; 
-        if (nextY > 10) nextY = 10;
-        if (nextX > 9.5) { 
-          if (nextY >= 4 && nextY <= 6) { 
-            transitionZone(); 
-            return; 
-          } else { 
-            nextX = 9.5; 
-          } 
+        // Comprobación independiente de ejes para permitir deslizamiento
+        let allowedX = nextX;
+        let allowedY = nextY;
+
+        if (allowedX < 0.5) allowedX = 0.5;
+        if (allowedY < 0.5) allowedY = 0.5;
+        if (allowedY > 9.5) allowedY = 9.5;
+
+        if (allowedX > 9.5) {
+          // Si está frente al umbral de la cueva (Y entre 4 y 6), cruza al exterior
+          if (allowedY >= 3.8 && allowedY <= 6.2) {
+            transitionZone();
+            return;
+          } else {
+            allowedX = 9.5; // Muro de roca
+          }
         }
-        player.worldX = nextX; 
-        player.worldY = nextY;
+
+        player.worldX = allowedX;
+        player.worldY = allowedY;
+      }
       } else {
         let tile = getProceduralTile(nextX, nextY);
 
