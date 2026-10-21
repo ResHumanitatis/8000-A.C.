@@ -286,7 +286,7 @@ function dropToBackpack(e, bpIndex) {
   STATE.backpack[bpIndex] = draggedData.item;
   if (existingItem) {
     if (draggedData.source === 'equipment') STATE.gear[draggedData.slotIndex] = existingItem; 
-    else if (draggedData.source === 'backpack') STATE.backpack[draggedData.slotIndex] = existingItem;
+    else if (draggedData.source === 'backpack') STATE.backpack[bpIndex] = existingItem;
   }
   draggedData = null; calculatePlayerStats();
 }
@@ -407,11 +407,6 @@ function updatePortrait() {
   drawHumanoid(pCtx, pCanvas.width/(2*2.5), 80, 0, pSkin, pCloth, false, Math.PI/2, 0); 
   pCtx.restore(); document.getElementById('inv-name-display').innerText = STATE.name.toUpperCase();
 }
-
-// --- MAPA PROCEDURAL CORE ---
-function hash(x, y) { let h = Math.sin(x*12.9898 + y*78.233) * 43758.5453; return h - Math.floor(h); }
-function noise(x, y) { let ix=Math.floor(x), iy=Math.floor(y); let fx=x-ix, fy=y-iy; let a=hash(ix,iy), b=hash(ix+1,iy), c=hash(ix,iy+1), d=hash(ix+1,iy+1); let ux=fx*fx*(3-2*fx), uy=fy*fy*(3-2*fy); return a*(1-ux)*(1-uy) + b*ux*(1-uy) + c*(1-ux)*uy + d*ux*uy; }
-function fbm(x, y, octs) { let v=0, a=0.5, f=1; for(let i=0; i<octs; i++){ v+=a*noise(x*f,y*f); f*=2; a*=0.5;} return v; }
 
 // --- MAPA PROCEDURAL CORE ---
 function hash(x, y) { let h = Math.sin(x*12.9898 + y*78.233) * 43758.5453; return h - Math.floor(h); }
