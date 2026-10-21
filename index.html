@@ -636,27 +636,56 @@ function renderWorldMap() {
   wCtx.fillStyle = '#fff'; wCtx.beginPath(); wCtx.arc(cx, cy, Math.max(3, 8*scale), 0, Math.PI*2); wCtx.fill(); wCtx.strokeStyle = '#000'; wCtx.stroke();
 }
 
+  function gameLoop(time) {
+  if (!canvas) return;
+  
+  if (STATE.mapOpen) {
+    renderWorldMap();
+  }
+
   if (!STATE.invOpen && !STATE.mapOpen) {
-    let dx = 0, dy = 0; if (keys['w']) { dx -= 1; dy -= 1; } if (keys['s']) { dx += 1; dy += 1; } if (keys['a']) { dx -= 1; dy += 1; } if (keys['d']) { dx += 1; dy -= 1; }
+    let dx = 0, dy = 0; 
+    if (keys['w']) { dx -= 1; dy -= 1; } 
+    if (keys['s']) { dx += 1; dy += 1; } 
+    if (keys['a']) { dx -= 1; dy += 1; } 
+    if (keys['d']) { dx += 1; dy += 1; }
+    
     player.isMoving = (dx !== 0 || dy !== 0);
+    
     if (player.isMoving) {
-      let screenDx = (dx - dy); let screenDy = (dx + dy); player.angle = Math.atan2(screenDy, screenDx);
-      let length = Math.sqrt(dx*dx + dy*dy); 
+      let screenDx = (dx - dy); 
+      let screenDy = (dx + dy); 
+      player.angle = Math.atan2(screenDy, screenDx);
+      
+      let length = Math.sqrt(dx * dx + dy * dy); 
       let moveSpeed = (player.currentSpeed !== undefined) ? player.currentSpeed : player.speed;
       let nextX = player.worldX + (dx / length) * (moveSpeed / 10); 
       let nextY = player.worldY + (dy / length) * (moveSpeed / 10);
       
       if (inCave) {
-        if(nextX < 0) nextX = 0; if(nextY < 0) nextY = 0; if(nextY > 10) nextY = 10;
-        if(nextX > 9.5) { if(nextY >= 4 && nextY <= 6) { transitionZone(); return; } else { nextX = 9.5; } }
-        player.worldX = nextX; player.worldY = nextY;
+        if (nextX < 0) nextX = 0; 
+        if (nextY < 0) nextY = 0; 
+        if (nextY > 10) nextY = 10;
+        if (nextX > 9.5) { 
+          if (nextY >= 4 && nextY <= 6) { 
+            transitionZone(); 
+            return; 
+          } else { 
+            nextX = 9.5; 
+          } 
+        }
+        player.worldX = nextX; 
+        player.worldY = nextY;
       } else {
         let tile = getProceduralTile(nextX, nextY);
 
         if (tile.waterZone === 'deep' && !player.hasBoat) {
-          // Zona Alta: Bloqueo de colisión por océano profundo sin embarcación
+          // Bloqueo de colisión en aguas profundas sin transporte marítimo
         } else {
-          if(Math.abs(nextX-WORLD_DOOR_X)<1 && Math.abs(nextY-WORLD_DOOR_Y)<1){ transitionZone(); return; }
+          if (Math.abs(nextX - WORLD_DOOR_X) < 1 && Math.abs(nextY - WORLD_DOOR_Y) < 1) { 
+            transitionZone(); 
+            return; 
+          }
           
           player.worldX = nextX; 
           player.worldY = nextY;
@@ -667,105 +696,194 @@ function renderWorldMap() {
             player.sinkOffset = 0;
             player.isSwimming = false;
           } else if (tile.waterZone === 'shallow') {
-            player.currentSpeed = player.speed * 0.65; // Vado a pie
+            player.currentSpeed = player.speed * 0.65;
             player.sinkOffset = 8;
             player.isSwimming = false;
           } else if (tile.waterZone === 'mid_low') {
-            player.currentSpeed = player.speed * 0.50; // Nado superficial
+            player.currentSpeed = player.speed * 0.50;
             player.sinkOffset = 24;
             player.isSwimming = true;
           } else if (tile.waterZone === 'mid') {
-            player.currentSpeed = player.speed * 0.45; // Nado en agua abierta
+            player.currentSpeed = player.speed * 0.45;
             player.sinkOffset = 30;
             player.isSwimming = true;
           } else if (tile.waterZone === 'deep' && player.hasBoat) {
-            player.currentSpeed = player.speed * 1.30; // Navegación
+            player.currentSpeed = player.speed * 1.30;
             player.sinkOffset = 0;
             player.isSwimming = false;
           }
 
-          for(let ex = Math.floor(player.worldX)-8; ex < player.worldX+8; ex++) {
-            for(let ey = Math.floor(player.worldY)-8; ey < player.worldY+8; ey++) {
-              if(Math.hypot(ex-player.worldX, ey-player.worldY) < 8) STATE.explored.add(ex+","+ey);
+          for (let ex = Math.floor(player.worldX) - 8; ex < player.worldX + 8; ex++) {
+            for (let ey = Math.floor(player.worldY) - 8; ey < player.worldY + 8; ey++) {
+              if (Math.hypot(ex - player.worldX, ey - player.worldY) < 8) {
+                STATE.explored.add(ex + "," + ey);
+              }
             }
           }
         }
       }
     }
     if (keys[' '] && player.z === 0) player.vz = JUMP_FORCE;
-  } else { player.isMoving = false; }
+  } else { 
+    player.isMoving = false; 
+  }
   
-  player.z += player.vz; if (player.z > 0) player.vz -= GRAVITY; else { player.z = 0; player.vz = 0; }
-  if(!inCave && !STATE.invOpen && !STATE.mapOpen && Math.floor(time) % 10 < 2) drawMinimap(); 
+  player.z += player.vz; 
+  if (player.z > 0) player.vz -= GRAVITY; 
+  else { player.z = 0; player.vz = 0; }
+  
+  if (!inCave && !STATE.invOpen && !STATE.mapOpen && Math.floor(time) % 10 < 2) drawMinimap(); 
 
-  let camX = (player.worldX - player.worldY) * (TILE_W / 2); let camY = (player.worldX + player.worldY) * (TILE_H / 2);
-  ctx.fillStyle = '#020202'; ctx.fillRect(0, 0, width, height); const cx = width / 2; const cy = height / 2 - 50;
+  let camX = (player.worldX - player.worldY) * (TILE_W / 2); 
+  let camY = (player.worldX + player.worldY) * (TILE_H / 2);
+  ctx.fillStyle = '#020202'; 
+  ctx.fillRect(0, 0, width, height); 
+  const cx = width / 2; 
+  const cy = height / 2 - 50;
 
-  const startX = Math.floor(player.worldX) - 15; const endX = startX + 30; const startY = Math.floor(player.worldY) - 15; const endY = startY + 30;
+  const startX = Math.floor(player.worldX) - 15; 
+  const endX = startX + 30; 
+  const startY = Math.floor(player.worldY) - 15; 
+  const endY = startY + 30;
 
   for (let x = startX; x < endX; x++) {
     for (let y = startY; y < endY; y++) {
       let tile = inCave ? { color: getCaveTile(x, y) } : getProceduralTile(x, y);
       let tileColor = tile ? tile.color : null;
       if (!tileColor) continue; 
-      if(!inCave && !STATE.explored.has(x+","+y)) continue; 
-      const sx = (x - y) * (TILE_W / 2) - camX + cx; const sy = (x + y) * (TILE_H / 2) - camY + cy;
+      if (!inCave && !STATE.explored.has(x + "," + y)) continue; 
+      const sx = (x - y) * (TILE_W / 2) - camX + cx; 
+      const sy = (x + y) * (TILE_H / 2) - camY + cy;
       if (sx < -TILE_W || sx > width + TILE_W || sy < -TILE_H || sy > height + TILE_H) continue;
       
-      ctx.beginPath(); ctx.moveTo(sx, sy - TILE_H / 2); ctx.lineTo(sx + TILE_W / 2, sy); ctx.lineTo(sx, sy + TILE_H / 2); ctx.lineTo(sx - TILE_W / 2, sy); ctx.closePath();
-      ctx.fillStyle = tileColor; ctx.fill(); ctx.strokeStyle = inCave ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.05)'; ctx.stroke();
+      ctx.beginPath(); 
+      ctx.moveTo(sx, sy - TILE_H / 2); 
+      ctx.lineTo(sx + TILE_W / 2, sy); 
+      ctx.lineTo(sx, sy + TILE_H / 2); 
+      ctx.lineTo(sx - TILE_W / 2, sy); 
+      ctx.closePath();
+      ctx.fillStyle = tileColor; 
+      ctx.fill(); 
+      ctx.strokeStyle = inCave ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.05)'; 
+      ctx.stroke();
     }
   }
 
-  // Dibujar el Monolito de Salida en el Mundo Exterior
-  if (!inCave && STATE.explored.has(Math.floor(WORLD_DOOR_X)+","+Math.floor(WORLD_DOOR_Y))) { 
+  // Monolito en el exterior
+  if (!inCave && STATE.explored.has(Math.floor(WORLD_DOOR_X) + "," + Math.floor(WORLD_DOOR_Y))) { 
     const doorSx = (WORLD_DOOR_X - WORLD_DOOR_Y) * (TILE_W / 2) - camX + cx; 
     const doorSy = (WORLD_DOOR_X + WORLD_DOOR_Y) * (TILE_H / 2) - camY + cy; 
-    ctx.fillStyle = '#0a0806'; ctx.fillRect(doorSx - 25, doorSy - 70, 50, 70); 
-    ctx.strokeStyle = '#c49a5b'; ctx.lineWidth = 2; ctx.strokeRect(doorSx - 25, doorSy - 70, 50, 70);
+    ctx.fillStyle = '#0a0806'; 
+    ctx.fillRect(doorSx - 25, doorSy - 70, 50, 70); 
+    ctx.strokeStyle = '#c49a5b'; 
+    ctx.lineWidth = 2; 
+    ctx.strokeRect(doorSx - 25, doorSy - 70, 50, 70);
   }
   
+  // Objetos en el suelo
   WORLD_ITEMS.forEach(item => {
-    if(item.inCave === inCave) {
-      if(!inCave && !STATE.explored.has(Math.floor(item.worldX)+","+Math.floor(item.worldY))) return;
-      const sx = (item.worldX - item.worldY) * (TILE_W / 2) - camX + cx; const sy = (item.worldX + item.worldY) * (TILE_H / 2) - camY + cy; drawWorldItem(ctx, item, sx, sy);
+    if (item.inCave === inCave) {
+      if (!inCave && !STATE.explored.has(Math.floor(item.worldX) + "," + Math.floor(item.worldY))) return;
+      const sx = (item.worldX - item.worldY) * (TILE_W / 2) - camX + cx; 
+      const sy = (item.worldX + item.worldY) * (TILE_H / 2) - camY + cy; 
+      drawWorldItem(ctx, item, sx, sy);
     }
   });
 
+  // NPCs dentro de la cueva
   if (inCave) {
-    const npcs = [{x: 6, y: 4, skin: '#c29b7a', cloth: '#3d3a35', phase: 0}, {x: 7, y: 6, skin: '#a67246', cloth: '#4a3222', phase: 1}, {x: 5, y: 7, skin: '#855127', cloth: '#3a271d', phase: 2}];
-    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; const fireY = (6 + 5) * (TILE_H / 2) - camY + cy;
-    ctx.fillStyle = '#1c100b'; ctx.fillRect(fireX - 15, fireY - 10, 30, 10);
-    const fireHeight = 20 + Math.sin(time * 0.02) * 5; ctx.fillStyle = '#e85c13'; ctx.beginPath(); ctx.moveTo(fireX, fireY - fireHeight - 10); ctx.lineTo(fireX + 10, fireY - 5); ctx.lineTo(fireX - 10, fireY - 5); ctx.fill();
+    const npcs = [
+      { x: 6, y: 4, skin: '#c29b7a', cloth: '#3d3a35', phase: 0 }, 
+      { x: 7, y: 6, skin: '#a67246', cloth: '#4a3222', phase: 1 }, 
+      { x: 5, y: 7, skin: '#855127', cloth: '#3a271d', phase: 2 }
+    ];
+    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; 
+    const fireY = (6 + 5) * (TILE_H / 2) - camY + cy; 
+    ctx.fillStyle = '#1c100b'; 
+    ctx.fillRect(fireX - 15, fireY - 10, 30, 10);
+    const fireHeight = 20 + Math.sin(time * 0.02) * 5; 
+    ctx.fillStyle = '#e85c13'; 
+    ctx.beginPath(); 
+    ctx.moveTo(fireX, fireY - fireHeight - 10); 
+    ctx.lineTo(fireX + 10, fireY - 5); 
+    ctx.lineTo(fireX - 10, fireY - 5); 
+    ctx.fill();
+    
     npcs.forEach(npc => {
-      const nx = (npc.x - npc.y) * (TILE_W / 2) - camX + cx; const ny = (npc.x + npc.y) * (TILE_H / 2) - camY + cy;
-      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(nx, ny, 16, 8, 0, 0, Math.PI * 2); ctx.fill(); 
-      drawHumanoid(ctx, nx, ny, 0, npc.skin, npc.cloth, false, Math.PI/2, time + (npc.phase * 1000));
+      const nx = (npc.x - npc.y) * (TILE_W / 2) - camX + cx; 
+      const ny = (npc.x + npc.y) * (TILE_H / 2) - camY + cy;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; 
+      ctx.beginPath(); 
+      ctx.ellipse(nx, ny, 16, 8, 0, 0, Math.PI * 2); 
+      ctx.fill(); 
+      drawHumanoid(ctx, nx, ny, 0, npc.skin, npc.cloth, false, Math.PI / 2, time + (npc.phase * 1000));
     });
   }
 
-  let shadowScale = Math.max(0.4, 1 - (player.z / 80)); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.ellipse(cx, cy, 20 * shadowScale, 10 * shadowScale, 0, 0, Math.PI * 2); ctx.fill();
-  let pSkin = STATE.modelOpts[STATE.modelIdx]; let pCloth = STATE.gear['pecho'] ? '#4d3d2e' : (STATE.gear['pantalon'] ? '#7a5a41' : 'transparent');
+  // Sombra y personaje principal
+  let shadowScale = Math.max(0.4, 1 - (player.z / 80)); 
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; 
+  ctx.beginPath(); 
+  ctx.ellipse(cx, cy, 20 * shadowScale, 10 * shadowScale, 0, 0, Math.PI * 2); 
+  ctx.fill();
+  
+  let pSkin = STATE.modelOpts[STATE.modelIdx]; 
+  let pCloth = STATE.gear['pecho'] ? '#4d3d2e' : (STATE.gear['pantalon'] ? '#7a5a41' : 'transparent');
   drawHumanoid(ctx, cx, cy, player.z, pSkin, pCloth, player.isMoving, player.angle, time);
 
-  if(hoveredWorldItem && !STATE.invOpen && !STATE.mapOpen) {
-    ctx.fillStyle = 'rgba(0,0,0,0.7)'; let txtW = ctx.measureText(hoveredWorldItem.item.name).width + 10; ctx.fillRect(hoveredWorldItem.x - txtW/2, hoveredWorldItem.y - 35, txtW, 20); ctx.fillStyle = '#c49a5b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(hoveredWorldItem.item.name, hoveredWorldItem.x, hoveredWorldItem.y - 21);
+  // Tooltip de objeto en el suelo
+  if (hoveredWorldItem && !STATE.invOpen && !STATE.mapOpen) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; 
+    let txtW = ctx.measureText(hoveredWorldItem.item.name).width + 10; 
+    ctx.fillRect(hoveredWorldItem.x - txtW / 2, hoveredWorldItem.y - 35, txtW, 20); 
+    ctx.fillStyle = '#c49a5b'; 
+    ctx.font = '12px sans-serif'; 
+    ctx.textAlign = 'center'; 
+    ctx.fillText(hoveredWorldItem.item.name, hoveredWorldItem.x, hoveredWorldItem.y - 21);
   }
 
-  const darkOverlay = document.createElement('canvas'); darkOverlay.width = width; darkOverlay.height = height; const dCtx = darkOverlay.getContext('2d');
-  dCtx.fillStyle = 'rgba(4, 3, 2, 0.97)'; dCtx.fillRect(0, 0, width, height);
+  // Capa de oscuridad e iluminación
+  const darkOverlay = document.createElement('canvas'); 
+  darkOverlay.width = width; 
+  darkOverlay.height = height; 
+  const dCtx = darkOverlay.getContext('2d');
+  dCtx.fillStyle = 'rgba(4, 3, 2, 0.97)'; 
+  dCtx.fillRect(0, 0, width, height);
   dCtx.globalCompositeOperation = 'destination-out';
-  const playerLight = 150 + Math.sin(time * 0.015) * 8; let visualY = cy - player.z;
-  const pGrad = dCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight); pGrad.addColorStop(0, 'rgba(255,255,255,1)'); pGrad.addColorStop(0.5, 'rgba(255,255,255,0.5)'); pGrad.addColorStop(1, 'rgba(255,255,255,0)');
-  dCtx.fillStyle = pGrad; dCtx.beginPath(); dCtx.arc(cx, visualY - 20, playerLight, 0, Math.PI * 2); dCtx.fill();
+  
+  const playerLight = 150 + Math.sin(time * 0.015) * 8; 
+  let visualY = cy - player.z;
+  const pGrad = dCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight); 
+  pGrad.addColorStop(0, 'rgba(255,255,255,1)'); 
+  pGrad.addColorStop(0.5, 'rgba(255,255,255,0.5)'); 
+  pGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  dCtx.fillStyle = pGrad; 
+  dCtx.beginPath(); 
+  dCtx.arc(cx, visualY - 20, playerLight, 0, Math.PI * 2); 
+  dCtx.fill();
 
   if (inCave) {
-    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; const fireY = (6 + 5) * (TILE_H / 2) - camY + cy; const fireLight = 350 + Math.sin(time * 0.01) * 15;
-    const fGrad = dCtx.createRadialGradient(fireX, fireY - 10, 20, fireX, fireY - 10, fireLight); fGrad.addColorStop(0, 'rgba(255,255,255,1)'); fGrad.addColorStop(0.6, 'rgba(255,255,255,0.4)'); fGrad.addColorStop(1, 'rgba(255,255,255,0)'); dCtx.fillStyle = fGrad; dCtx.beginPath(); dCtx.arc(fireX, fireY - 10, fireLight, 0, Math.PI * 2); dCtx.fill();
+    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; 
+    const fireY = (6 + 5) * (TILE_H / 2) - camY + cy; 
+    const fireLight = 350 + Math.sin(time * 0.01) * 15;
+    const fGrad = dCtx.createRadialGradient(fireX, fireY - 10, 20, fireX, fireY - 10, fireLight); 
+    fGrad.addColorStop(0, 'rgba(255,255,255,1)'); 
+    fGrad.addColorStop(0.6, 'rgba(255,255,255,0.4)'); 
+    fGrad.addColorStop(1, 'rgba(255,255,255,0)'); 
+    dCtx.fillStyle = fGrad; 
+    dCtx.beginPath(); 
+    dCtx.arc(fireX, fireY - 10, fireLight, 0, Math.PI * 2); 
+    dCtx.fill();
   }
   
   dCtx.globalCompositeOperation = 'source-over';
-  const glow = dCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight * 0.8); glow.addColorStop(0, 'rgba(224, 123, 40, 0.15)'); glow.addColorStop(1, 'rgba(224, 80, 20, 0)'); dCtx.fillStyle = glow; dCtx.beginPath(); dCtx.arc(cx, visualY - 20, playerLight * 0.8, 0, Math.PI * 2); dCtx.fill();
+  const glow = dCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight * 0.8); 
+  glow.addColorStop(0, 'rgba(224, 123, 40, 0.15)'); 
+  glow.addColorStop(1, 'rgba(224, 80, 20, 0)'); 
+  dCtx.fillStyle = glow; 
+  dCtx.beginPath(); 
+  dCtx.arc(cx, visualY - 20, playerLight * 0.8, 0, Math.PI * 2); 
+  dCtx.fill();
   ctx.drawImage(darkOverlay, 0, 0);
 
   requestAnimationFrame(gameLoop);
