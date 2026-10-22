@@ -592,20 +592,39 @@ function getProceduralTile(x, y) {
 }
 
 // --- JUEGO PRINCIPAL ---
-let canvas, ctx, width, height; const TILE_W = 100, TILE_H = 50;
+let canvas, ctx, width, height; let darkOverlayCanvas, darkOverlayCtx; let gameLoopStarted = false; let resizeHandler = null; const TILE_W = 100, TILE_H = 50;
 let inCave = true; let WORLD_DOOR_X = 0, WORLD_DOOR_Y = 0; const CAVE_DOOR_X = 10;
 let player = { worldX: 2, worldY: 5, z: 0, vz: 0, speed: 1.2, isMoving: false, angle: 0 }; 
 let currentStamReal = 100;
 const GRAVITY = 0.8, JUMP_FORCE = 12;
 
 function initGame() {
-  canvas = document.getElementById('gameCanvas'); ctx = canvas.getContext('2d');
+  canvas = document.getElementById('gameCanvas');
+  if (!canvas) return;
+  ctx = canvas.getContext('2d');
+  if (gameLoopStarted) { resizeCanvas(); return; }
+  gameLoopStarted = true;
+  darkOverlayCanvas = document.createElement('canvas');
+  darkOverlayCtx = darkOverlayCanvas.getContext('2d');
   WORLD_DOOR_X = BIOMES[STATE.biome].startX; WORLD_DOOR_Y = BIOMES[STATE.biome].startY;
   calculatePlayerStats(); 
   currentStamReal = STATE.stam || 100;
-  function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
-  window.addEventListener('resize', resize); resize();
+  resizeHandler = resizeCanvas;
+  window.addEventListener('resize', resizeHandler);
+  resizeCanvas();
   requestAnimationFrame(gameLoop);
+}
+
+function resizeCanvas() {
+  if (!canvas) return;
+  width = window.innerWidth;
+  height = window.innerHeight;
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  if (darkOverlayCanvas) {
+    if (darkOverlayCanvas.width !== width) darkOverlayCanvas.width = width;
+    if (darkOverlayCanvas.height !== height) darkOverlayCanvas.height = height;
+  }
 }
 
 function transitionZone() { 
@@ -956,13 +975,18 @@ function gameLoop(time) {
   drawHumanoid(ctx, cx, cy, player.z, pSkin, pCloth, player.isMoving, player.angle, time, inWater);
 
   if (hoveredWorldItem && !STATE.invOpen && !STATE.mapOpen) {
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; let txtW = ctx.measureText(hoveredWorldItem.item.name).width + 10;
     ctx.fillRect(hoveredWorldItem.x - txtW / 2, hoveredWorldItem.y - 35, txtW, 20);
-    ctx.fillStyle = '#c49a5b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#c49a5b';
     ctx.fillText(hoveredWorldItem.item.name, hoveredWorldItem.x, hoveredWorldItem.y - 21);
   }
 
-  const darkOverlay = document.createElement('canvas'); darkOverlay.width = width; darkOverlay.height = height; const dCtx = darkOverlay.getContext('2d');
+  const darkOverlay = darkOverlayCanvas;
+  const dCtx = darkOverlayCtx;
+  if (!darkOverlay || !dCtx) { requestAnimationFrame(gameLoop); return; }
+  dCtx.clearRect(0, 0, width, height);
   dCtx.fillStyle = 'rgba(4, 3, 2, 0.97)'; dCtx.fillRect(0, 0, width, height);
   dCtx.globalCompositeOperation = 'destination-out';
   const playerLight = 150 + Math.sin(time * 0.015) * 8; let visualY = cy - player.z;
