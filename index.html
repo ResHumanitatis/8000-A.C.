@@ -649,9 +649,8 @@ function gameLoop(time) {
     if (keys['s']) { dx += 1; dy += 1; } // Abajo en pantalla
     if (keys['a']) { dx -= 1; dy += 1; } // Izquierda en pantalla
     if (keys['d']) { dx += 1; dy -= 1; } // Derecha en pantalla
-    
+
     player.isMoving = (dx !== 0 || dy !== 0);
-    
     if (player.isMoving) {
       let screenDx = (dx - dy); 
       let screenDy = (dx + dy); 
@@ -663,32 +662,29 @@ function gameLoop(time) {
       let nextY = player.worldY + (dy / length) * (moveSpeed / 10);
       
       if (inCave) {
-        // Comprobación independiente de ejes para permitir deslizamiento
+        // Deslizamiento perimetral en el Abrigo Rocoso (evita bloqueos en muros)
         let allowedX = nextX;
         let allowedY = nextY;
-
         if (allowedX < 0.5) allowedX = 0.5;
         if (allowedY < 0.5) allowedY = 0.5;
         if (allowedY > 9.5) allowedY = 9.5;
 
         if (allowedX > 9.5) {
-          // Si está frente al umbral de la cueva (Y entre 4 y 6), cruza al exterior
-          if (allowedY >= 3.8 && allowedY <= 6.2) {
-            transitionZone();
-            return;
-          } else {
-            allowedX = 9.5; // Muro de roca
+          if (allowedY >= 3.8 && allowedY <= 6.2) { 
+            transitionZone(); 
+            return; 
+          } else { 
+            allowedX = 9.5; 
           }
         }
-
-        player.worldX = allowedX;
+        player.worldX = allowedX; 
         player.worldY = allowedY;
-      }
       } else {
+        // Lógica de navegación y profundidades en el Mundo Exterior
         let tile = getProceduralTile(nextX, nextY);
 
         if (tile.waterZone === 'deep' && !player.hasBoat) {
-          // Bloqueo de colisión en aguas profundas sin transporte marítimo
+          // Bloqueo físico en aguas profundas sin embarcación
         } else {
           if (Math.abs(nextX - WORLD_DOOR_X) < 1 && Math.abs(nextY - WORLD_DOOR_Y) < 1) { 
             transitionZone(); 
@@ -704,19 +700,19 @@ function gameLoop(time) {
             player.sinkOffset = 0;
             player.isSwimming = false;
           } else if (tile.waterZone === 'shallow') {
-            player.currentSpeed = player.speed * 0.65;
+            player.currentSpeed = player.speed * 0.65; // Vado a pie
             player.sinkOffset = 8;
             player.isSwimming = false;
           } else if (tile.waterZone === 'mid_low') {
-            player.currentSpeed = player.speed * 0.50;
+            player.currentSpeed = player.speed * 0.50; // Nado con esfuerzo
             player.sinkOffset = 24;
             player.isSwimming = true;
           } else if (tile.waterZone === 'mid') {
-            player.currentSpeed = player.speed * 0.45;
+            player.currentSpeed = player.speed * 0.45; // Nado en agua abierta
             player.sinkOffset = 30;
             player.isSwimming = true;
           } else if (tile.waterZone === 'deep' && player.hasBoat) {
-            player.currentSpeed = player.speed * 1.30;
+            player.currentSpeed = player.speed * 1.30; // Navegación costera
             player.sinkOffset = 0;
             player.isSwimming = false;
           }
