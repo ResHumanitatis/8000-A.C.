@@ -644,11 +644,11 @@ function gameLoop(time) {
   }
 
   if (!STATE.invOpen && !STATE.mapOpen) {
-    let dx = 0, dy = 0; 
-    if (keys['w']) { dx -= 1; dy -= 1; } 
-    if (keys['s']) { dx += 1; dy += 1; } 
-    if (keys['a']) { dx -= 1; dy += 1; } 
-    if (keys['d']) { dx += 1; dy += 1; }
+   let dx = 0, dy = 0; 
+    if (keys['w']) { dx -= 1; dy -= 1; } // Arriba en pantalla
+    if (keys['s']) { dx += 1; dy += 1; } // Abajo en pantalla
+    if (keys['a']) { dx -= 1; dy += 1; } // Izquierda en pantalla
+    if (keys['d']) { dx += 1; dy -= 1; } // Derecha en pantalla
     
     player.isMoving = (dx !== 0 || dy !== 0);
     
