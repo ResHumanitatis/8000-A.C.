@@ -743,28 +743,23 @@ function gameLoop(time) {
       player.angle = Math.atan2(screenDy, screenDx);
       let length = Math.sqrt(dx * dx + dy * dy);
 
-      if (inCave) {
+    if (inCave) {
         let step = (player.speed / 10);
         let moveX = (dx / length) * step;
         let moveY = (dy / length) * step;
         let nextX = player.worldX + moveX;
         let nextY = player.worldY + moveY;
 
-        // Comprobación de umbral de salida hacia el exterior
-        if (nextX >= 9.2 && nextY >= 2.0 && nextY <= 8.0) {
+        // Salida hacia el Mundo Exterior (flanco derecho de la cueva)
+        if (nextX >= 9.0 && nextY <= 7.0) {
           transitionZone();
           return;
         }
 
-        // Deslizamiento independiente en X (evita bloqueo al chocar con esquinas)
-        if (nextX >= 0 && nextX <= 9.2) {
-          player.worldX = nextX;
-        }
-        
-        // Deslizamiento independiente en Y
-        if (nextY >= 0.5 && nextY <= 9.5) {
-          player.worldY = nextY;
-        }
+        // Deslizamiento fluido continuo contra paredes (impide bloqueos)
+        player.worldX = Math.max(0.5, Math.min(9.2, nextX));
+        player.worldY = Math.max(0.5, Math.min(9.5, nextY));
+      }
       } else {
         // Movimiento en Mundo Exterior con físicas de cota y colisión
         let currTile = getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY));
