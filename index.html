@@ -335,6 +335,7 @@ function handleRightClick(e) {
 }
 
 let hoveredWorldItem = null;
+let lastMinimapUpdate = 0;
 window.addEventListener('mousemove', (e) => {
   if(!canvas || STATE.invOpen || STATE.mapOpen) { hoveredWorldItem = null; return; }
   const rect = canvas.getBoundingClientRect(); const mouseX = e.clientX - rect.left; const mouseY = e.clientY - rect.top;
@@ -864,7 +865,11 @@ function gameLoop(time) {
 
   player.z += player.vz;
   if (player.z > 0) player.vz -= GRAVITY; else { player.z = 0; player.vz = 0; }
-  if (!inCave && !STATE.invOpen && !STATE.mapOpen && Math.floor(time) % 10 < 2) drawMinimap();
+  // El minimapa se actualiza a 5 FPS; dibujarlo en casi todos los fotogramas consume recursos sin aportar información útil.
+  if (!inCave && !STATE.invOpen && !STATE.mapOpen && time - lastMinimapUpdate >= 200) {
+    drawMinimap();
+    lastMinimapUpdate = time;
+  }
 
   let camElevOffset = (playerTileNow.cota || 0) * STEP_Y;
   let camX = (player.worldX - player.worldY) * (TILE_W / 2);
@@ -1005,7 +1010,8 @@ function gameLoop(time) {
   const glow = dCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight * 0.8);
   glow.addColorStop(0, 'rgba(224, 123, 40, 0.15)'); glow.addColorStop(1, 'rgba(224, 80, 20, 0)');
   dCtx.fillStyle = glow; dCtx.beginPath(); dCtx.arc(cx, visualY - 20, playerLight * 0.8, 0, Math.PI * 2); dCtx.fill();
-  ctx.drawImage(darkOverlay, 0, 0);
+  // La oscuridad dinámica pertenece a la cueva. Aplicarla al exterior cubría el mundo con un velo casi negro.
+  if (inCave) ctx.drawImage(darkOverlay, 0, 0);
 
   requestAnimationFrame(gameLoop);
 }
