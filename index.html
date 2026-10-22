@@ -415,23 +415,46 @@ function fbm(x, y, octs) { let v=0, a=0.5, f=1; for(let i=0; i<octs; i++){ v+=a*
 
 const tileCache = new Map();
 function getProceduralTile(x, y) {
-  let key = x + "," + y; if(tileCache.has(key)) return tileCache.get(key);
+  let key = x + "," + y; 
+  if (tileCache.has(key)) return tileCache.get(key);
   let lat = (y - 10000) / 10000; 
-  let elev = fbm(x*0.01, y*0.01, 3); 
-  let moist = fbm(x*0.02 + 50, y*0.02 + 50, 2); 
+  let elev = fbm(x * 0.01, y * 0.01, 3); 
+  let moist = fbm(x * 0.02 + 50, y * 0.02 + 50, 2); 
   let tempBase = 1.0 - Math.abs(lat); 
-  let temp = tempBase + (fbm(x*0.05, y*0.05, 2) * 0.3 - 0.15); 
+  let temp = tempBase + (fbm(x * 0.05, y * 0.05, 2) * 0.3 - 0.15); 
   
-  if(Math.hypot(x - WORLD_DOOR_X, y - WORLD_DOOR_Y) < 15) elev = Math.max(elev, 0.45); // Terraformar Cueva
+  // 1. Puente de Beringia (Paso continental del Holoceno temprano entre Siberia y Alaska)
+  if (lat < -0.65 && x > 7500 && x < 9500) {
+    elev = Math.max(elev, 0.42);
+  }
+
+  // 2. Terraformación de seguridad de la Cueva
+  if (Math.hypot(x - WORLD_DOOR_X, y - WORLD_DOOR_Y) < 15) elev = Math.max(elev, 0.45);
 
   let color = '#333';
-  if(elev < 0.35) color = '#081c2e'; 
-  else if(elev < 0.40) color = '#1a3c54'; 
-  else if(elev < 0.43) color = '#8f8164'; 
-  else {
-    if(temp < 0.25) color = '#cedce0'; else if(temp < 0.4) color = (moist > 0.5) ? '#475c44' : '#697063'; else if(temp > 0.7) color = (moist < 0.45) ? '#b07b41' : ((moist > 0.65) ? '#18381a' : '#8a7c49'); else color = (moist > 0.55) ? '#2e3d24' : '#575e3f'; 
+  let waterZone = 'none'; // 'none', 'shallow', 'mid_low', 'mid', 'deep'
+
+  // 3. Estratificación de profundidades con nivel del mar rebajado
+  if (elev < 0.22) { 
+    color = '#05111c'; waterZone = 'deep';       // Alta (Océano profundo, intransitable sin barco)
+  } else if (elev < 0.28) { 
+    color = '#0e2b40'; waterZone = 'mid';        // Media (Nado en aguas abiertas)
+  } else if (elev < 0.36) { 
+    color = '#1f4863'; waterZone = 'mid_low';    // Media Baja (Nado con fondo visible)
+  } else if (elev < 0.41) { 
+    color = '#4a7c8f'; waterZone = 'shallow';    // Baja (Vado costero a pie, pies hundidos)
+  } else if (elev < 0.44) { 
+    color = '#8f8164';                           // Playa y plataforma litoral emergida
+  } else {
+    if (temp < 0.25) color = '#cedce0'; 
+    else if (temp < 0.4) color = (moist > 0.5) ? '#475c44' : '#697063'; 
+    else if (temp > 0.7) color = (moist < 0.45) ? '#b07b41' : ((moist > 0.65) ? '#18381a' : '#8a7c49'); 
+    else color = (moist > 0.55) ? '#2e3d24' : '#575e3f'; 
   }
-  tileCache.set(key, color); return color;
+
+  const tileData = { color, elev, waterZone };
+  tileCache.set(key, tileData); 
+  return tileData;
 }
 
 // --- JUEGO PRINCIPAL ---
@@ -455,25 +478,30 @@ function initGame() {
 }
 
 function transitionZone() { 
-  for(let k in keys) keys[k] = false; player.isMoving=false; 
-  if(inCave){
+  for (let k in keys) keys[k] = false; player.isMoving = false; 
+  if (inCave) {
     triggerLoading('screen-game', 'Cargando: Mundo Exterior'); 
-    setTimeout(()=>{ 
-      inCave=false; player.worldX=WORLD_DOOR_X+1.5; player.worldY=WORLD_DOOR_Y; 
-      for(let ex = Math.floor(player.worldX)-12; ex < player.worldX+12; ex++) {
-        for(let ey = Math.floor(player.worldY)-12; ey < player.worldY+12; ey++) {
-          if(Math.hypot(ex-player.worldX, ey-player.worldY) < 12) STATE.explored.add(ex+","+ey);
+    setTimeout(() => { 
+      inCave = false; player.worldX = WORLD_DOOR_X + 1.5; player.worldY = WORLD_DOOR_Y; 
+      // Despejar niebla base
+      for (let ex = Math.floor(player.worldX) - 12; ex < player.worldX + 12; ex++) {
+        for (let ey = Math.floor(player.worldY) - 12; ey < player.worldY + 12; ey++) {
+          if (Math.hypot(ex - player.worldX, ey - player.worldY) < 12) STATE.explored.add(ex + "," + ey);
         }
       }
       updateUIStates(); showNotification("Sientes el viento. Sobrevive."); 
     }, 1500);
   } else {
     triggerLoading('screen-game', 'Cargando: Abrigo Rocoso'); 
-    setTimeout(()=>{ inCave=true; player.worldX=CAVE_DOOR_X-1.5; player.worldY=5; updateUIStates(); showNotification("Has vuelto al calor del hogar."); }, 1500);
+    setTimeout(() => { 
+      inCave = true; player.worldX = CAVE_DOOR_X - 1.5; player.worldY = 5; 
+      player.waterZone = 'none'; player.isSwimming = false; player.sinkOffset = 0; player.currentSpeed = player.speed;
+      updateUIStates(); showNotification("Has vuelto al calor del hogar."); 
+    }, 1500);
   } 
 }
 
-function getCaveTile(x, y) { if(x>=0 && x<=10 && y>=0 && y<=10) return '#1f1a16'; return null; }
+function getCaveTile(x, y) { if (x >= 0 && x <= 10 && y >= 0 && y <= 10) return '#1f1a16'; return null; }
 
 function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset) {
   let sink = (!inCave && player) ? (player.sinkOffset || 0) : 0;
@@ -486,6 +514,7 @@ function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset)
   let isSwimming = (!inCave && player && player.isSwimming);
   let isShallow = (!inCave && player && player.waterZone === 'shallow');
 
+  // 1. Efecto estela y vado en zona baja
   if (isShallow) {
     cCtx.save();
     cCtx.fillStyle = 'rgba(160, 210, 235, 0.45)';
@@ -504,6 +533,7 @@ function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset)
     cCtx.restore();
   }
 
+  // 2. Piernas (ocultas si está nadando)
   let swing = walkCycle * 14; 
   let lx = cx - 6, rx = cx + 6;
   if (!isSwimming) {
@@ -511,6 +541,7 @@ function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset)
     cCtx.beginPath(); cCtx.moveTo(lx, visualY - 20); cCtx.lineTo(lx + dirX * swing, visualY + dirY * swing * 0.5); cCtx.stroke();
     cCtx.beginPath(); cCtx.moveTo(rx, visualY - 20); cCtx.lineTo(rx - dirX * swing, visualY - dirY * swing * 0.5); cCtx.stroke();
   } else {
+    // Sombra difusa subacuática
     cCtx.save();
     cCtx.fillStyle = 'rgba(10, 30, 45, 0.4)';
     cCtx.beginPath();
@@ -519,37 +550,41 @@ function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset)
     cCtx.restore();
   }
 
+  // 3. Torso
   let lean = isMoving ? 3 : 0;
-  if (isSwimming) lean = 8;
+  if (isSwimming) lean = 8; // Inclinación hidrodinámica
 
-  if(cloth !== 'transparent') { 
+  if (cloth !== 'transparent') { 
     cCtx.fillStyle = cloth; 
     cCtx.beginPath(); 
-    cCtx.moveTo(cx - 12 + dirX*lean, visualY - 45 + breathe + dirY*lean); 
-    cCtx.lineTo(cx + 12 + dirX*lean, visualY - 45 + breathe + dirY*lean); 
+    cCtx.moveTo(cx - 12 + dirX * lean, visualY - 45 + breathe + dirY * lean); 
+    cCtx.lineTo(cx + 12 + dirX * lean, visualY - 45 + breathe + dirY * lean); 
     cCtx.lineTo(cx + 8, visualY - 18 + breathe); 
     cCtx.lineTo(cx - 8, visualY - 18 + breathe); 
     cCtx.fill(); 
   } else { 
     cCtx.fillStyle = skin; 
     cCtx.beginPath(); 
-    cCtx.moveTo(cx - 10 + dirX*lean, visualY - 45 + breathe + dirY*lean); 
-    cCtx.lineTo(cx + 10 + dirX*lean, visualY - 45 + breathe + dirY*lean); 
+    cCtx.moveTo(cx - 10 + dirX * lean, visualY - 45 + breathe + dirY * lean); 
+    cCtx.lineTo(cx + 10 + dirX * lean, visualY - 45 + breathe + dirY * lean); 
     cCtx.lineTo(cx + 6, visualY - 18 + breathe); 
     cCtx.lineTo(cx - 6, visualY - 18 + breathe); 
     cCtx.fill(); 
   }
 
+  // 4. Brazos
   cCtx.lineWidth = 4; cCtx.strokeStyle = skin;
   if (!isSwimming) {
-    cCtx.beginPath(); cCtx.moveTo(cx - 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx - 14 - dirX * swing, visualY - 18 - dirY * swing*0.5 + breathe); cCtx.stroke();
-    cCtx.beginPath(); cCtx.moveTo(cx + 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx + 14 + dirX * swing, visualY - 18 + dirY * swing*0.5 + breathe); cCtx.stroke();
+    cCtx.beginPath(); cCtx.moveTo(cx - 11 + dirX * lean, visualY - 42 + breathe); cCtx.lineTo(cx - 14 - dirX * swing, visualY - 18 - dirY * swing * 0.5 + breathe); cCtx.stroke();
+    cCtx.beginPath(); cCtx.moveTo(cx + 11 + dirX * lean, visualY - 42 + breathe); cCtx.lineTo(cx + 14 + dirX * swing, visualY - 18 + dirY * swing * 0.5 + breathe); cCtx.stroke();
   } else {
+    // Brazada circular en superficie
     let swimStroke = Math.sin(timeOffset * 0.01) * 10;
     cCtx.beginPath(); cCtx.moveTo(cx - 11, visualY - 35); cCtx.lineTo(cx - 16 + dirX * swimStroke, visualY - 15 + dirY * swimStroke); cCtx.stroke();
     cCtx.beginPath(); cCtx.moveTo(cx + 11, visualY - 35); cCtx.lineTo(cx + 16 - dirX * swimStroke, visualY - 15 - dirY * swimStroke); cCtx.stroke();
   }
 
+  // 5. Cabeza y pelo
   cCtx.fillStyle = skin; 
   let hx = cx + dirX * (isSwimming ? 8 : 4); 
   let hy = visualY - 54 + breathe + dirY * (isSwimming ? 4 : 2); 
@@ -559,98 +594,95 @@ function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset)
 }
 
 function drawWorldItem(cCtx, item, screenX, screenY) {
-  cCtx.save(); cCtx.fillStyle = 'rgba(0,0,0,0.5)'; cCtx.beginPath(); cCtx.ellipse(screenX, screenY+5, 10, 5, 0, 0, Math.PI*2); cCtx.fill();
+  cCtx.save(); cCtx.fillStyle = 'rgba(0,0,0,0.5)'; cCtx.beginPath(); cCtx.ellipse(screenX, screenY + 5, 10, 5, 0, 0, Math.PI * 2); cCtx.fill();
   cCtx.lineWidth = 1; cCtx.strokeStyle = '#fff';
-  if(item.slotType === 'pecho' || item.slotType === 'capa') { cCtx.fillStyle = '#6b543c'; cCtx.fillRect(screenX-8, screenY-10, 16, 15); cCtx.strokeRect(screenX-8, screenY-10, 16, 15); } 
-  else if(item.slotType === 'pantalon') { cCtx.fillStyle = '#4a331c'; cCtx.fillRect(screenX-6, screenY-5, 5, 10); cCtx.fillRect(screenX+1, screenY-5, 5, 10); } 
-  else if(item.slotType === 'amuleto' || item.slotType === 'cuello' || item.slotType === 'cabeza') { cCtx.fillStyle = '#d43b24'; cCtx.beginPath(); cCtx.arc(screenX, screenY-3, 5, 0, Math.PI*2); cCtx.fill(); cCtx.stroke(); } 
-  else { cCtx.fillStyle = '#8c7a65'; cCtx.beginPath(); cCtx.moveTo(screenX, screenY-5); cCtx.lineTo(screenX+5, screenY+5); cCtx.lineTo(screenX-5, screenY+5); cCtx.fill(); }
+  if (item.slotType === 'pecho' || item.slotType === 'capa') { cCtx.fillStyle = '#6b543c'; cCtx.fillRect(screenX - 8, screenY - 10, 16, 15); cCtx.strokeRect(screenX - 8, screenY - 10, 16, 15); } 
+  else if (item.slotType === 'pantalon') { cCtx.fillStyle = '#4a331c'; cCtx.fillRect(screenX - 6, screenY - 5, 5, 10); cCtx.fillRect(screenX + 1, screenY - 5, 5, 10); } 
+  else if (item.slotType === 'amuleto' || item.slotType === 'cuello' || item.slotType === 'cabeza') { cCtx.fillStyle = '#d43b24'; cCtx.beginPath(); cCtx.arc(screenX, screenY - 3, 5, 0, Math.PI * 2); cCtx.fill(); cCtx.stroke(); } 
+  else { cCtx.fillStyle = '#8c7a65'; cCtx.beginPath(); cCtx.moveTo(screenX, screenY - 5); cCtx.lineTo(screenX + 5, screenY + 5); cCtx.lineTo(screenX - 5, screenY + 5); cCtx.fill(); }
   cCtx.restore();
 }
 
 function drawMinimap() {
-  const mCanv = document.getElementById('minimapCanvas'); const mCtx = mCanv.getContext('2d'); mCtx.clearRect(0,0, 160, 160);
+  const mCanv = document.getElementById('minimapCanvas'); const mCtx = mCanv.getContext('2d'); mCtx.clearRect(0, 0, 160, 160);
   const px = Math.floor(player.worldX); const py = Math.floor(player.worldY);
-  
-  for(let x = px - 20; x < px + 20; x++){
-    for(let y = py - 20; y < py + 20; y++){
-      if(STATE.explored.has(x+","+y)) {
+  for (let x = px - 20; x < px + 20; x++) {
+    for (let y = py - 20; y < py + 20; y++) {
+      if (STATE.explored.has(x + "," + y)) {
         let drawX = 80 + (x - px) * 4; let drawY = 80 + (y - py) * 4; 
         mCtx.fillStyle = getProceduralTile(x, y).color; 
         mCtx.fillRect(drawX, drawY, 4, 4);
-
-        // Dibujar huella del Abrigo Rocoso (10x10 baldosas desde la puerta)
-        if(x >= WORLD_DOOR_X && x <= WORLD_DOOR_X + 2 && y >= WORLD_DOOR_Y - 1 && y <= WORLD_DOOR_Y + 1) {
-          mCtx.fillStyle = '#1f1a16'; // Tono roca de cueva
-          mCtx.fillRect(drawX, drawY, 4, 4);
-          mCtx.strokeStyle = '#c49a5b'; // Perfil dorado del hogar
-          mCtx.strokeRect(drawX, drawY, 4, 4);
+        
+        // Huella del Abrigo Rocoso (Cueva inicial)
+        if (x >= WORLD_DOOR_X - 2 && x <= WORLD_DOOR_X && y >= WORLD_DOOR_Y - 1 && y <= WORLD_DOOR_Y + 1) {
+          mCtx.fillStyle = '#1f1a16'; mCtx.fillRect(drawX, drawY, 4, 4);
+          mCtx.strokeStyle = '#c49a5b'; mCtx.strokeRect(drawX, drawY, 4, 4);
         }
       }
     }
   }
-  mCtx.fillStyle = '#fff'; mCtx.beginPath(); mCtx.arc(80, 80, 3, 0, Math.PI*2); mCtx.fill();
+  mCtx.fillStyle = '#fff'; mCtx.beginPath(); mCtx.arc(80, 80, 3, 0, Math.PI * 2); mCtx.fill();
 }
 
 function renderWorldMap() {
   const wCanv = document.getElementById('macroMapCanvas'); const panel = document.querySelector('.map-body');
-  wCanv.width = panel.clientWidth; wCanv.height = panel.clientHeight; const wCtx = wCanv.getContext('2d'); wCtx.clearRect(0,0, wCanv.width, wCanv.height);
+  wCanv.width = panel.clientWidth; wCanv.height = panel.clientHeight; const wCtx = wCanv.getContext('2d'); wCtx.clearRect(0, 0, wCanv.width, wCanv.height);
   const cx = wCanv.width / 2; const cy = wCanv.height / 2; const scale = STATE.mapZoom;
 
   STATE.explored.forEach(tileKey => {
-    let [x, y] = tileKey.split(',').map(Number); let drawX = cx + (x - player.worldX) * scale; let drawY = cy + (y - player.worldY) * scale;
-    if(drawX > -10 && drawX < wCanv.width+10 && drawY > -10 && drawY < wCanv.height+10) { 
+    let [x, y] = tileKey.split(',').map(Number); 
+    let drawX = cx + (x - player.worldX) * scale; 
+    let drawY = cy + (y - player.worldY) * scale;
+    if (drawX > -10 && drawX < wCanv.width + 10 && drawY > -10 && drawY < wCanv.height + 10) { 
       wCtx.fillStyle = getProceduralTile(x, y).color; 
       wCtx.fillRect(drawX, drawY, Math.max(1, 4 * scale), Math.max(1, 4 * scale)); 
     }
   });
 
-  // Representación detallada de la Cueva / Abrigo Rocoso en el mapa macro
-  let doorKey = Math.floor(WORLD_DOOR_X) + "," + Math.floor(WORLD_DOOR_Y);
-  if (STATE.explored.has(doorKey)) { 
+  // Representación del Abrigo Rocoso en el Mapa Macro
+  if (STATE.explored.has(Math.floor(WORLD_DOOR_X) + "," + Math.floor(WORLD_DOOR_Y))) { 
     let doorX = cx + (WORLD_DOOR_X - player.worldX) * scale; 
     let doorY = cy + (WORLD_DOOR_Y - player.worldY) * scale; 
     
-    // Dibujar la planta rectangular del refugio de 10x10 baldosas
+    // Planta del refugio (10x10 baldosas)
     wCtx.fillStyle = 'rgba(31, 26, 22, 0.85)';
     wCtx.strokeStyle = '#c49a5b';
     wCtx.lineWidth = 1.5;
-    let caveWidth = 10 * scale;
-    let caveHeight = 10 * scale;
-    wCtx.fillRect(doorX - caveWidth, doorY - caveHeight/2, caveWidth, caveHeight);
-    wCtx.strokeRect(doorX - caveWidth, doorY - caveHeight/2, caveWidth, caveHeight);
+    let caveSize = 10 * scale;
+    wCtx.fillRect(doorX - caveSize, doorY - caveSize / 2, caveSize, caveSize);
+    wCtx.strokeRect(doorX - caveSize, doorY - caveSize / 2, caveSize, caveSize);
 
-    // Etiqueta del Abrigo
     wCtx.fillStyle = '#c49a5b';
     wCtx.font = '10px Georgia';
-    wCtx.fillText("Abrigo Rocoso (Inicio)", doorX - caveWidth - 10, doorY - caveHeight/2 - 5);
+    wCtx.fillText("Abrigo Rocoso", doorX - caveSize - 10, doorY - caveSize / 2 - 5);
 
-    // Monolito / Entrada
     wCtx.fillStyle = '#c49a5b'; 
     wCtx.beginPath(); 
-    wCtx.arc(doorX, doorY, Math.max(3, 8 * scale), 0, Math.PI*2); 
+    wCtx.arc(doorX, doorY, Math.max(3, 8 * scale), 0, Math.PI * 2); 
     wCtx.fill(); 
   }
 
-  // Posición del jugador
-  wCtx.fillStyle = '#fff'; wCtx.beginPath(); wCtx.arc(cx, cy, Math.max(3, 8*scale), 0, Math.PI*2); wCtx.fill(); wCtx.strokeStyle = '#000'; wCtx.stroke();
+  // Jugador
+  wCtx.fillStyle = '#fff'; wCtx.beginPath(); wCtx.arc(cx, cy, Math.max(3, 8 * scale), 0, Math.PI * 2); wCtx.fill(); wCtx.strokeStyle = '#000'; wCtx.stroke();
 }
 
 function gameLoop(time) {
   if (!canvas) return;
   
+  // Actualización en tiempo real del Mapa Macro
   if (STATE.mapOpen) {
     renderWorldMap();
   }
 
   if (!STATE.invOpen && !STATE.mapOpen) {
-   let dx = 0, dy = 0; 
-    if (keys['w']) { dx -= 1; dy -= 1; } // Arriba en pantalla
-    if (keys['s']) { dx += 1; dy += 1; } // Abajo en pantalla
-    if (keys['a']) { dx -= 1; dy += 1; } // Izquierda en pantalla
-    if (keys['d']) { dx += 1; dy -= 1; } // Derecha en pantalla
-
+    let dx = 0, dy = 0; 
+    if (keys['w']) { dx -= 1; dy -= 1; } 
+    if (keys['s']) { dx += 1; dy += 1; } 
+    if (keys['a']) { dx -= 1; dy += 1; } 
+    if (keys['d']) { dx += 1; dy -= 1; }
+    
     player.isMoving = (dx !== 0 || dy !== 0);
+    
     if (player.isMoving) {
       let screenDx = (dx - dy); 
       let screenDy = (dx + dy); 
@@ -662,7 +694,7 @@ function gameLoop(time) {
       let nextY = player.worldY + (dy / length) * (moveSpeed / 10);
       
       if (inCave) {
-        // Deslizamiento perimetral en el Abrigo Rocoso (evita bloqueos en muros)
+        // Deslizamiento en las paredes de la cueva (Wall sliding suave)
         let allowedX = nextX;
         let allowedY = nextY;
         if (allowedX < 0.5) allowedX = 0.5;
@@ -680,11 +712,10 @@ function gameLoop(time) {
         player.worldX = allowedX; 
         player.worldY = allowedY;
       } else {
-        // Lógica de navegación y profundidades en el Mundo Exterior
         let tile = getProceduralTile(nextX, nextY);
 
         if (tile.waterZone === 'deep' && !player.hasBoat) {
-          // Bloqueo físico en aguas profundas sin embarcación
+          // Bloqueo de colisión en aguas profundas sin embarcación
         } else {
           if (Math.abs(nextX - WORLD_DOOR_X) < 1 && Math.abs(nextY - WORLD_DOOR_Y) < 1) { 
             transitionZone(); 
