@@ -451,678 +451,471 @@ function updatePortrait() {
   pCtx.restore(); document.getElementById('inv-name-display').innerText = STATE.name.toUpperCase();
 }
 
-// --- MAPA PROCEDURAL CORE (HOLOCENO TEMPRANO + SISTEMAS MONTAÑOSOS) ---
+// --- MAPA PROCEDURAL CORE CON RELIEVE Y OROGRAFÍA PLANETARIA ---
 function hash(x, y) { let h = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return h - Math.floor(h); }
-function noise(x, y) { let ix = Math.floor(x), iy = Math.floor(y); let fx = x - ix, fy = y - iy; let a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1); let ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy); return a * (1 - ux) * (1 - uy) + b * ux * (1 - uy) + c * (1 - ux) * uy + d * ux * uy; }
-function fbm(x, y, octs) { let v = 0, a = 0.5, f = 1; for(let i = 0; i < octs; i++){ v += a * noise(x * f, y * f); f *= 2; a *= 0.5; } return v; }
-
-// Ruido de crestas tectónicas (Ridged Noise) para generar cordilleras y macizos continuos
-function ridgeNoise(x, y, octs) {
+function noise(x, y) {
+  let ix = Math.floor(x), iy = Math.floor(y);
+  let fx = x - ix, fy = y - iy;
+  let a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
+  let ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  return a * (1 - ux) * (1 - uy) + b * ux * (1 - uy) + c * (1 - ux) * uy + d * ux * uy;
+}
+function fbm(x, y, octs) {
   let v = 0, a = 0.5, f = 1;
-  for (let i = 0; i < octs; i++) {
-    let n = noise(x * f, y * f);
-    n = 1.0 - Math.abs(n * 2.0 - 1.0);
-    n = n * n;
-    v += a * n;
-    f *= 2.2;
-    a *= 0.5;
-  }
+  for (let i = 0; i < octs; i++) { v += a * noise(x * f, y * f); f *= 2; a *= 0.5; }
   return v;
 }
 
+// Descriptor de baldosa con compatibilidad nativa de color para minimapa y macro canvas
+function Tile(color, cota, blocked, speedMod, isRiver, temp, moist) {
+  this.color = color;
+  this.cota = cota;           // Escala 0 a 8
+  this.blocked = blocked;     // Colisión física infranqueable
+  this.speedMod = speedMod;   // Modificador de paso
+  this.isRiver = isRiver;     // Vado fluvial
+  this.temp = temp;
+  this.moist = moist;
+}
+Tile.prototype.toString = function() { return this.color; };
+
 const tileCache = new Map();
-function getProceduralTile(rawX, rawY) {
-  let x = Math.floor(rawX);
-  let y = Math.floor(rawY);
+const STEP_Y = 6; // Píxeles de levantamiento vertical por cota en proyección 2.5D
+
+// Orografía planetaria determinista fija: Andes (Oeste) y Eje Alpino-Himalayo
+function getTectonicSpines(x, y) {
+  let ridge = 0;
+  // Cordillera de los Andes (franja longitudinal pacífica en latitudes templadas/australes)
+  if (y >= 6500 && y <= 18000) {
+    let andesX = 2200 + Math.sin(y * 0.0006) * 450;
+    let distAndes = Math.abs(x - andesX);
+    if (distAndes < 380) {
+      let p = 1 - (distAndes / 380);
+      ridge = Math.max(ridge, p * p * 0.45);
+    }
+  }
+  // Cinturón Alpino-Himalayo (franja latitudinal en latitudes medias boreales)
+  if (y >= 6800 && y <= 9800 && x >= 7000 && x <= 15000) {
+    let himalayaY = 8200 + Math.sin(x * 0.0005) * 350;
+    let distHima = Math.abs(y - himalayaY);
+    if (distHima < 450) {
+      let p = 1 - (distHima / 450);
+      ridge = Math.max(ridge, p * p * 0.50);
+    }
+  }
+  return ridge;
+}
+
+function getProceduralTile(x, y) {
   let key = x + "," + y;
   if (tileCache.has(key)) return tileCache.get(key);
 
-  let lat = (y - 10000) / 10000; 
-  let baseElev = fbm(x * 0.01, y * 0.01, 3); 
-  let moist = fbm(x * 0.02 + 50, y * 0.02 + 50, 2); 
-  let tempBase = 1.0 - Math.abs(lat); 
-  let temp = tempBase + (fbm(x * 0.05, y * 0.05, 2) * 0.3 - 0.15); 
+  let lat = (y - 10000) / 10000;
+  let rawElev = fbm(x * 0.01, y * 0.01, 3);
+  let moist = fbm(x * 0.02 + 50, y * 0.02 + 50, 2);
+  let tempBase = 1.0 - Math.abs(lat);
+  let temp = tempBase + (fbm(x * 0.05, y * 0.05, 2) * 0.3 - 0.15);
 
-  // Cinturones orográficos planetarios (arcos de plegamiento tectónico)
-  let tectonicMask = ridgeNoise(x * 0.008 + 120, y * 0.008 - 80, 3);
-  let localPeak = ridgeNoise(x * 0.035, y * 0.035, 2);
-  let elev = baseElev;
+  // Inyección de dorsales orográficas deterministas
+  let elev = rawElev + getTectonicSpines(x, y);
 
-  // Si estamos en masa continental (baseElev > 0.42), emergen las cadenas montañosas
-  if (baseElev > 0.42 && tectonicMask > 0.58) {
-    let uplift = (tectonicMask - 0.58) * 1.15 + (localPeak * 0.18);
-    elev = Math.min(0.98, baseElev + uplift);
+  // Red hidrográfica continental por ruido de cresta
+  let riverNoise = Math.abs(fbm(x * 0.006 + 80, y * 0.006 + 80, 2) - 0.5);
+  let isDeepRiver = false, isShallowRiver = false;
+  if (elev >= 0.43 && elev < 0.80) {
+    if (riverNoise < 0.009) isDeepRiver = true;
+    else if (riverNoise < 0.018) isShallowRiver = true;
   }
 
-  // 1. Puente Terrestre de Beringia (Holoceno temprano: unión Siberia-Alaska en latitudes boreales)
-  if (lat < -0.65 && x > 7500 && x < 9500) {
-    elev = Math.max(elev, 0.44);
-  }
-
-  // 2. Terraformación alrededor del Abrigo Rocoso (garantiza meseta transitable sin ahogarse ni quedar atrapado en cumbres)
-  let distToDoor = Math.hypot(x - WORLD_DOOR_X, y - WORLD_DOOR_Y);
-  if (distToDoor < 15) {
-    elev = Math.max(0.46, Math.min(elev, 0.58));
+  // Terraformación segura de la Cueva Natal
+  if (Math.hypot(x - WORLD_DOOR_X, y - WORLD_DOOR_Y) < 15) {
+    elev = Math.max(0.48, Math.min(elev, 0.58));
+    isDeepRiver = false;
+    isShallowRiver = false;
   }
 
   let color = '#333';
-  let waterZone = 'none';    // 'none', 'shallow', 'mid_low', 'mid', 'deep'
-  let mountainZone = 'none'; // 'none', 'hills', 'mountain', 'peak'
+  let cota = 0;
+  let blocked = false;
+  let speedMod = 1.0;
 
-  // 3. Estratificación Hidrológica y Orográfica
-  if (elev < 0.22) { 
-    color = '#05111c'; waterZone = 'deep';       // Alta: Océano profundo (requiere navegación)
-  } else if (elev < 0.28) { 
-    color = '#0e2b40'; waterZone = 'mid';        // Media: Nado en aguas abiertas
-  } else if (elev < 0.36) { 
-    color = '#1f4863'; waterZone = 'mid_low';    // Media Baja: Nado superficial
-  } else if (elev < 0.41) { 
-    color = '#4a7c8f'; waterZone = 'shallow';    // Baja: Vado costero a pie (pies hundidos)
-  } else if (elev < 0.44) { 
-    color = '#8f8164';                           // Playa / Plataforma litoral emergida
-  } else if (elev >= 0.82) {
-    color = '#d8e3e8'; mountainZone = 'peak';    // Cumbre Glaciar / Alta Montaña (Infranqueable)
-  } else if (elev >= 0.72) {
-    color = (temp < 0.35) ? '#8c9ba5' : '#4f4c49';
-    mountainZone = 'mountain';                   // Media Montaña / Risco escarpado
-  } else if (elev >= 0.62) {
-    color = (temp < 0.35) ? '#737d84' : '#6b6154';
-    mountainZone = 'hills';                      // Colinas / Piedemonte rocoso
+  // --- ESTRATIFICACIÓN TOPOGRÁFICA Y CROMÁTICA (8 COTAS) ---
+  if (elev < 0.35) {
+    // Cota 0: Océano Profundo (Infranqueable)
+    color = '#081c2e'; cota = 0; blocked = true;
+  } else if (elev < 0.40) {
+    // Cota 0: Aguas Someras / Marismas (Infranqueable a pie)
+    color = '#1a3c54'; cota = 0; blocked = true;
+  } else if (elev < 0.44) {
+    // Cota 0: Litoral arenoso / Playa al nivel del mar
+    color = '#8f8164'; cota = 0; speedMod = 0.9;
+  } else if (isDeepRiver) {
+    // Cauce fluvial profundo (Barrera natural)
+    color = '#163952'; cota = 1; blocked = true;
+  } else if (isShallowRiver) {
+    // Vado fluvial limoso (Paso practicable pero lento)
+    color = '#3d5e54'; cota = 1; speedMod = 0.5;
+  } else if (elev < 0.52) {
+    // Cota 1: Vega / Llanura aluvial
+    color = (moist > 0.5) ? '#384d2b' : '#555e3b';
+    cota = 1;
+  } else if (elev < 0.60) {
+    // Cota 2: Colina baja / Pastizal firme
+    if (temp < 0.3) color = '#788273';
+    else if (temp > 0.7) color = (moist < 0.45) ? '#a8753b' : '#234720';
+    else color = (moist > 0.55) ? '#2e3d24' : '#575e3f';
+    cota = 2;
+  } else if (elev < 0.68) {
+    // Cota 3: Lomas calizas / Media ladera
+    color = (temp < 0.35) ? '#cedce0' : '#6b6654';
+    cota = 3;
+  } else if (elev < 0.75) {
+    // Cota 4: Piedemonte y canteras de sílex
+    color = '#615949'; cota = 4; speedMod = 0.85;
+  } else if (elev < 0.82) {
+    // Cota 5: Murallón kárstico escarpado
+    color = '#4f4a3f'; cota = 5; speedMod = 0.7;
+  } else if (elev < 0.89) {
+    // Cota 6: Alta montaña / Canchal frío
+    color = '#423d38'; cota = 6; speedMod = 0.6;
+  } else if (elev < 0.95) {
+    // Cota 7: Nieves perpetuas y cornisas tardiglaciares
+    color = '#c5d3d6'; cota = 7; speedMod = 0.5;
   } else {
-    // Llanuras y Biomas Terrestres
-    if (temp < 0.25) color = '#cedce0'; 
-    else if (temp < 0.4) color = (moist > 0.5) ? '#475c44' : '#697063'; 
-    else if (temp > 0.7) color = (moist < 0.45) ? '#b07b41' : ((moist > 0.65) ? '#18381a' : '#8a7c49'); 
-    else color = (moist > 0.55) ? '#2e3d24' : '#575e3f'; 
+    // Cota 8: Picos Inalcanzables (Everest, Chimborazo - Colisión Absoluta)
+    color = '#e3edf0'; cota = 8; blocked = true;
   }
 
-  const tileData = { color, elev, waterZone, mountainZone, temp };
-  tileCache.set(key, tileData); 
-  return tileData;
+  let tileObj = new Tile(color, cota, blocked, speedMod, (isDeepRiver || isShallowRiver), temp, moist);
+  tileCache.set(key, tileObj);
+  return tileObj;
 }
 
 // --- JUEGO PRINCIPAL ---
-let canvas, ctx, width, height;
-const TILE_W = 100, TILE_H = 50;
-let inCave = true;
-let isTransitioning = false;
-let gameLoopRunning = false;
-let WORLD_DOOR_X = 6000, WORLD_DOOR_Y = 8500;
-const CAVE_DOOR_X = 10;
-
-let player = { 
-  worldX: 2, worldY: 5, z: 0, vz: 0, 
-  speed: 1.2, currentSpeed: 1.2, 
-  isMoving: false, angle: 0,
-  waterZone: 'none', mountainZone: 'none',
-  isSwimming: false, sinkOffset: 0, hasBoat: false 
-}; 
+let canvas, ctx, width, height; const TILE_W = 100, TILE_H = 50;
+let inCave = true; let WORLD_DOOR_X = 0, WORLD_DOOR_Y = 0; const CAVE_DOOR_X = 10;
+let player = { worldX: 2, worldY: 5, z: 0, vz: 0, speed: 1.2, isMoving: false, angle: 0 }; 
+let currentStamReal = 100;
 const GRAVITY = 0.8, JUMP_FORCE = 12;
 
-// Lienzo persistente para iluminación (evita crear elementos DOM cada fotograma)
-const lightCanvas = document.createElement('canvas');
-const lightCtx = lightCanvas.getContext('2d');
-
-function resizeGame() {
-  if (!canvas) return;
-  width = window.innerWidth;
-  height = window.innerHeight;
-  canvas.width = width;
-  canvas.height = height;
-  lightCanvas.width = width;
-  lightCanvas.height = height;
-}
-window.addEventListener('resize', resizeGame);
-
 function initGame() {
-  canvas = document.getElementById('gameCanvas');
-  ctx = canvas.getContext('2d');
-  if (STATE.biome && BIOMES[STATE.biome]) {
-    WORLD_DOOR_X = BIOMES[STATE.biome].startX;
-    WORLD_DOOR_Y = BIOMES[STATE.biome].startY;
-  }
-  calculatePlayerStats();
-  resizeGame();
-  updateUIStates();
-  if (!gameLoopRunning) {
-    gameLoopRunning = true;
-    requestAnimationFrame(gameLoop);
-  }
+  canvas = document.getElementById('gameCanvas'); ctx = canvas.getContext('2d');
+  WORLD_DOOR_X = BIOMES[STATE.biome].startX; WORLD_DOOR_Y = BIOMES[STATE.biome].startY;
+  calculatePlayerStats(); 
+  currentStamReal = STATE.stam || 100;
+  function resize() { width = window.innerWidth; height = window.innerHeight; canvas.width = width; canvas.height = height; }
+  window.addEventListener('resize', resize); resize();
+  requestAnimationFrame(gameLoop);
 }
 
-function transitionZone() {
-  if (isTransitioning) return;
-  isTransitioning = true;
-  for (let k in keys) keys[k] = false;
-  player.isMoving = false;
-
-  if (inCave) {
-    triggerLoading('screen-game', 'Cargando: Mundo Exterior', () => {
-      inCave = false;
-      player.worldX = WORLD_DOOR_X + 1.8;
-      player.worldY = WORLD_DOOR_Y;
-      player.waterZone = 'none';
-      player.mountainZone = 'none';
-      player.isSwimming = false;
-      player.sinkOffset = 0;
-      player.currentSpeed = player.speed;
-
-      // Despejar niebla de guerra inicial (radio 12 baldosas)
-      for (let ex = Math.floor(player.worldX) - 12; ex <= Math.floor(player.worldX) + 12; ex++) {
-        for (let ey = Math.floor(player.worldY) - 12; ey <= Math.floor(player.worldY) + 12; ey++) {
-          if (Math.hypot(ex - player.worldX, ey - player.worldY) <= 12) {
-            STATE.explored.add(ex + "," + ey);
-          }
+function transitionZone() { 
+  for(let k in keys) keys[k] = false; player.isMoving = false; 
+  if(inCave){
+    triggerLoading('screen-game', 'Cargando: Mundo Exterior'); 
+    setTimeout(() => { 
+      inCave = false; player.worldX = WORLD_DOOR_X + 1.5; player.worldY = WORLD_DOOR_Y; 
+      for(let ex = Math.floor(player.worldX) - 12; ex < player.worldX + 12; ex++) {
+        for(let ey = Math.floor(player.worldY) - 12; ey < player.worldY + 12; ey++) {
+          if(Math.hypot(ex - player.worldX, ey - player.worldY) < 12) STATE.explored.add(ex + "," + ey);
         }
       }
-      updateUIStates();
-      showNotification("Sientes el viento del Holoceno. Sobrevive.");
-      isTransitioning = false;
-    });
+      updateUIStates(); showNotification("Sientes el viento. Sobrevive."); 
+    }, 1500);
   } else {
-    triggerLoading('screen-game', 'Cargando: Abrigo Rocoso', () => {
-      inCave = true;
-      player.worldX = CAVE_DOOR_X - 1.5;
-      player.worldY = 5;
-      player.waterZone = 'none';
-      player.mountainZone = 'none';
-      player.isSwimming = false;
-      player.sinkOffset = 0;
-      player.currentSpeed = player.speed;
-      updateUIStates();
-      showNotification("Has vuelto al calor del hogar.");
-      isTransitioning = false;
-    });
-  }
+    triggerLoading('screen-game', 'Cargando: Abrigo Rocoso'); 
+    setTimeout(() => { inCave = true; player.worldX = CAVE_DOOR_X - 1.5; player.worldY = 5; updateUIStates(); showNotification("Has vuelto al calor del hogar."); }, 1500);
+  } 
 }
 
-function getCaveTile(x, y) { if (x >= 0 && x <= 10 && y >= 0 && y <= 10) return '#1f1a16'; return null; }
-
-// Renderizado Volumétrico 2.5D de Sistemas Montañosos
-function drawMountainRelief(cCtx, sx, sy, tile) {
-  if (!tile || tile.mountainZone === 'none' || !tile.mountainZone) return;
-
-  let peakH = 18;
-  if (tile.mountainZone === 'mountain') peakH = 38;
-  else if (tile.mountainZone === 'peak') peakH = 62;
-
-  cCtx.save();
-  // Vertiente Izquierda (Iluminada)
-  cCtx.fillStyle = tile.mountainZone === 'peak' ? '#9aa7b0' : (tile.mountainZone === 'mountain' ? '#635f59' : '#7a7062');
-  cCtx.beginPath();
-  cCtx.moveTo(sx, sy - peakH);
-  cCtx.lineTo(sx - TILE_W / 2, sy);
-  cCtx.lineTo(sx, sy + TILE_H / 2);
-  cCtx.closePath();
-  cCtx.fill();
-
-  // Vertiente Derecha (Sombra proyectada)
-  cCtx.fillStyle = tile.mountainZone === 'peak' ? '#6d7880' : (tile.mountainZone === 'mountain' ? '#3d3a36' : '#524b41');
-  cCtx.beginPath();
-  cCtx.moveTo(sx, sy - peakH);
-  cCtx.lineTo(sx + TILE_W / 2, sy);
-  cCtx.lineTo(sx, sy + TILE_H / 2);
-  cCtx.closePath();
-  cCtx.fill();
-
-  // Corona de Nieve Perpetua en Cumbres o Montañas Frías
-  if (tile.mountainZone === 'peak' || (tile.mountainZone === 'mountain' && tile.temp < 0.42)) {
-    let snowRatio = tile.mountainZone === 'peak' ? 0.48 : 0.30;
-    cCtx.fillStyle = '#eef5f9';
-    cCtx.beginPath();
-    cCtx.moveTo(sx, sy - peakH);
-    cCtx.lineTo(sx - (TILE_W / 2) * snowRatio, sy - peakH * (1 - snowRatio));
-    cCtx.lineTo(sx, sy - peakH * (1 - snowRatio * 1.3));
-    cCtx.lineTo(sx + (TILE_W / 2) * snowRatio, sy - peakH * (1 - snowRatio));
-    cCtx.closePath();
-    cCtx.fill();
-  }
-
-  // Arista central de roca
-  cCtx.strokeStyle = 'rgba(0,0,0,0.35)';
-  cCtx.lineWidth = 1;
-  cCtx.beginPath();
-  cCtx.moveTo(sx, sy - peakH);
-  cCtx.lineTo(sx, sy + TILE_H / 2);
-  cCtx.stroke();
-  cCtx.restore();
-}
+function getCaveTile(x, y) { if(x >= 0 && x <= 10 && y >= 0 && y <= 10) return '#1f1a16'; return null; }
 
 function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset) {
-  let sink = (!inCave && player && cCtx === ctx) ? (player.sinkOffset || 0) : 0;
-  let visualY = (cy + sink) - z; 
-  let walkCycle = isMoving ? Math.sin(timeOffset * 0.015) : 0; 
-  let breathe = !isMoving ? Math.sin(timeOffset * 0.005) * 2 : 0;
-  let dirX = Math.cos(angle); let dirY = Math.sin(angle); 
-  cCtx.lineCap = "round";
-
-  let isSwimming = (!inCave && player && cCtx === ctx && player.isSwimming);
-  let isShallow = (!inCave && player && cCtx === ctx && player.waterZone === 'shallow');
-
-  // 1. Efecto estela en vado (Baja) y ondas en nado (Media Baja / Media)
-  if (isShallow) {
-    cCtx.save();
-    cCtx.fillStyle = 'rgba(160, 210, 235, 0.45)';
-    cCtx.beginPath();
-    cCtx.ellipse(cx, cy + 4, 15, 7, 0, 0, Math.PI * 2);
-    cCtx.fill();
-    cCtx.restore();
-  } else if (isSwimming) {
-    let wavePulse = Math.sin(timeOffset * 0.006) * 2;
-    cCtx.save();
-    cCtx.strokeStyle = 'rgba(200, 240, 255, 0.65)';
-    cCtx.lineWidth = 1.8;
-    cCtx.beginPath();
-    cCtx.ellipse(cx, visualY - 10, 20 + wavePulse, 10 + (wavePulse * 0.5), 0, 0, Math.PI * 2);
-    cCtx.stroke();
-    cCtx.restore();
-  }
-
-  // 2. Piernas (ocultas bajo el agua al nadar)
-  let swing = walkCycle * 14; 
-  let lx = cx - 6, rx = cx + 6;
-  if (!isSwimming) {
-    cCtx.lineWidth = 5; cCtx.strokeStyle = skin;
-    cCtx.beginPath(); cCtx.moveTo(lx, visualY - 20); cCtx.lineTo(lx + dirX * swing, visualY + dirY * swing * 0.5); cCtx.stroke();
-    cCtx.beginPath(); cCtx.moveTo(rx, visualY - 20); cCtx.lineTo(rx - dirX * swing, visualY - dirY * swing * 0.5); cCtx.stroke();
-  } else {
-    cCtx.save();
-    cCtx.fillStyle = 'rgba(10, 30, 45, 0.4)';
-    cCtx.beginPath();
-    cCtx.ellipse(cx - dirX * 10, visualY, 12, 6, angle, 0, Math.PI * 2);
-    cCtx.fill();
-    cCtx.restore();
-  }
-
-  // 3. Torso
+  let visualY = cy - z; let walkCycle = isMoving ? Math.sin(timeOffset * 0.015) : 0; let breathe = !isMoving ? Math.sin(timeOffset * 0.005) * 2 : 0;
+  let dirX = Math.cos(angle); let dirY = Math.sin(angle); cCtx.lineCap = "round";
+  let swing = walkCycle * 14; let lx = cx - 6, rx = cx + 6;
+  cCtx.lineWidth = 5; cCtx.strokeStyle = skin;
+  cCtx.beginPath(); cCtx.moveTo(lx, visualY - 20); cCtx.lineTo(lx + dirX * swing, visualY + dirY * swing * 0.5); cCtx.stroke();
+  cCtx.beginPath(); cCtx.moveTo(rx, visualY - 20); cCtx.lineTo(rx - dirX * swing, visualY - dirY * swing * 0.5); cCtx.stroke();
   let lean = isMoving ? 3 : 0;
-  if (isSwimming) lean = 8;
-
-  if (cloth !== 'transparent') { 
-    cCtx.fillStyle = cloth; 
-    cCtx.beginPath(); 
-    cCtx.moveTo(cx - 12 + dirX * lean, visualY - 45 + breathe + dirY * lean); 
-    cCtx.lineTo(cx + 12 + dirX * lean, visualY - 45 + breathe + dirY * lean); 
-    cCtx.lineTo(cx + 8, visualY - 18 + breathe); 
-    cCtx.lineTo(cx - 8, visualY - 18 + breathe); 
-    cCtx.fill(); 
-  } else { 
-    cCtx.fillStyle = skin; 
-    cCtx.beginPath(); 
-    cCtx.moveTo(cx - 10 + dirX * lean, visualY - 45 + breathe + dirY * lean); 
-    cCtx.lineTo(cx + 10 + dirX * lean, visualY - 45 + breathe + dirY * lean); 
-    cCtx.lineTo(cx + 6, visualY - 18 + breathe); 
-    cCtx.lineTo(cx - 6, visualY - 18 + breathe); 
-    cCtx.fill(); 
-  }
-
-  // 4. Brazos
+  if(cloth !== 'transparent') { cCtx.fillStyle = cloth; cCtx.beginPath(); cCtx.moveTo(cx - 12 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 12 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 8, visualY - 18 + breathe); cCtx.lineTo(cx - 8, visualY - 18 + breathe); cCtx.fill(); } 
+  else { cCtx.fillStyle = skin; cCtx.beginPath(); cCtx.moveTo(cx - 10 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 10 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 6, visualY - 18 + breathe); cCtx.lineTo(cx - 6, visualY - 18 + breathe); cCtx.fill(); }
   cCtx.lineWidth = 4; cCtx.strokeStyle = skin;
-  if (!isSwimming) {
-    cCtx.beginPath(); cCtx.moveTo(cx - 11 + dirX * lean, visualY - 42 + breathe); cCtx.lineTo(cx - 14 - dirX * swing, visualY - 18 - dirY * swing * 0.5 + breathe); cCtx.stroke();
-    cCtx.beginPath(); cCtx.moveTo(cx + 11 + dirX * lean, visualY - 42 + breathe); cCtx.lineTo(cx + 14 + dirX * swing, visualY - 18 + dirY * swing * 0.5 + breathe); cCtx.stroke();
-  } else {
-    let swimStroke = Math.sin(timeOffset * 0.01) * 10;
-    cCtx.beginPath(); cCtx.moveTo(cx - 11, visualY - 35); cCtx.lineTo(cx - 16 + dirX * swimStroke, visualY - 15 + dirY * swimStroke); cCtx.stroke();
-    cCtx.beginPath(); cCtx.moveTo(cx + 11, visualY - 35); cCtx.lineTo(cx + 16 - dirX * swimStroke, visualY - 15 - dirY * swimStroke); cCtx.stroke();
-  }
-
-  // 5. Cabeza y pelo
-  cCtx.fillStyle = skin; 
-  let hx = cx + dirX * (isSwimming ? 8 : 4); 
-  let hy = visualY - 54 + breathe + dirY * (isSwimming ? 4 : 2); 
-  cCtx.beginPath(); cCtx.arc(hx, hy, 9, 0, Math.PI * 2); cCtx.fill();
-  cCtx.fillStyle = '#111'; 
-  cCtx.beginPath(); cCtx.arc(hx, hy - 2, 9, Math.PI * 0.9, Math.PI * 2.1); cCtx.fill();
+  cCtx.beginPath(); cCtx.moveTo(cx - 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx - 14 - dirX * swing, visualY - 18 - dirY * swing*0.5 + breathe); cCtx.stroke();
+  cCtx.beginPath(); cCtx.moveTo(cx + 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx + 14 + dirX * swing, visualY - 18 + dirY * swing*0.5 + breathe); cCtx.stroke();
+  cCtx.fillStyle = skin; let hx = cx + dirX * 4; let hy = visualY - 54 + breathe + dirY * 2; cCtx.beginPath(); cCtx.arc(hx, hy, 9, 0, Math.PI * 2); cCtx.fill();
+  cCtx.fillStyle = '#111'; cCtx.beginPath(); cCtx.arc(hx, hy - 2, 9, Math.PI * 0.9, Math.PI * 2.1); cCtx.fill();
 }
 
 function drawWorldItem(cCtx, item, screenX, screenY) {
-  cCtx.save(); cCtx.fillStyle = 'rgba(0,0,0,0.5)'; cCtx.beginPath(); cCtx.ellipse(screenX, screenY + 5, 10, 5, 0, 0, Math.PI * 2); cCtx.fill();
+  cCtx.save(); cCtx.fillStyle = 'rgba(0,0,0,0.5)'; cCtx.beginPath(); cCtx.ellipse(screenX, screenY+5, 10, 5, 0, 0, Math.PI*2); cCtx.fill();
   cCtx.lineWidth = 1; cCtx.strokeStyle = '#fff';
-  if (item.slotType === 'pecho' || item.slotType === 'capa') { cCtx.fillStyle = '#6b543c'; cCtx.fillRect(screenX - 8, screenY - 10, 16, 15); cCtx.strokeRect(screenX - 8, screenY - 10, 16, 15); } 
-  else if (item.slotType === 'pantalon') { cCtx.fillStyle = '#4a331c'; cCtx.fillRect(screenX - 6, screenY - 5, 5, 10); cCtx.fillRect(screenX + 1, screenY - 5, 5, 10); } 
-  else if (item.slotType === 'amuleto' || item.slotType === 'cuello' || item.slotType === 'cabeza') { cCtx.fillStyle = '#d43b24'; cCtx.beginPath(); cCtx.arc(screenX, screenY - 3, 5, 0, Math.PI * 2); cCtx.fill(); cCtx.stroke(); } 
-  else { cCtx.fillStyle = '#8c7a65'; cCtx.beginPath(); cCtx.moveTo(screenX, screenY - 5); cCtx.lineTo(screenX + 5, screenY + 5); cCtx.lineTo(screenX - 5, screenY + 5); cCtx.fill(); }
+  if(item.slotType === 'pecho' || item.slotType === 'capa') { cCtx.fillStyle = '#6b543c'; cCtx.fillRect(screenX-8, screenY-10, 16, 15); cCtx.strokeRect(screenX-8, screenY-10, 16, 15); } 
+  else if(item.slotType === 'pantalon') { cCtx.fillStyle = '#4a331c'; cCtx.fillRect(screenX-6, screenY-5, 5, 10); cCtx.fillRect(screenX+1, screenY-5, 5, 10); } 
+  else if(item.slotType === 'amuleto' || item.slotType === 'cuello' || item.slotType === 'cabeza') { cCtx.fillStyle = '#d43b24'; cCtx.beginPath(); cCtx.arc(screenX, screenY-3, 5, 0, Math.PI*2); cCtx.fill(); cCtx.stroke(); } 
+  else { cCtx.fillStyle = '#8c7a65'; cCtx.beginPath(); cCtx.moveTo(screenX, screenY-5); cCtx.lineTo(screenX+5, screenY+5); cCtx.lineTo(screenX-5, screenY+5); cCtx.fill(); }
   cCtx.restore();
 }
 
 function drawMinimap() {
-  const mCanv = document.getElementById('minimapCanvas'); const mCtx = mCanv.getContext('2d'); mCtx.clearRect(0, 0, 160, 160);
+  const mCanv = document.getElementById('minimapCanvas'); const mCtx = mCanv.getContext('2d'); mCtx.clearRect(0,0, 160, 160);
   const px = Math.floor(player.worldX); const py = Math.floor(player.worldY);
-  for (let x = px - 20; x < px + 20; x++) {
-    for (let y = py - 20; y < py + 20; y++) {
-      if (STATE.explored.has(x + "," + y)) {
-        let drawX = 80 + (x - px) * 4; let drawY = 80 + (y - py) * 4; 
-        let tile = getProceduralTile(x, y);
-        mCtx.fillStyle = tile.color; 
+  for(let x = px - 20; x < px + 20; x++){
+    for(let y = py - 20; y < py + 20; y++){
+      if(STATE.explored.has(x+","+y)) {
+        let drawX = 80 + (x - px) * 4; let drawY = 80 + (y - py) * 4;
+        mCtx.fillStyle = getProceduralTile(x, y).toString();
         mCtx.fillRect(drawX, drawY, 4, 4);
-        
-        // Huella del Abrigo Rocoso (Cueva inicial)
-        if (x >= WORLD_DOOR_X - 2 && x <= WORLD_DOOR_X && y >= WORLD_DOOR_Y - 1 && y <= WORLD_DOOR_Y + 1) {
-          mCtx.fillStyle = '#1f1a16'; mCtx.fillRect(drawX, drawY, 4, 4);
-          mCtx.strokeStyle = '#c49a5b'; mCtx.strokeRect(drawX, drawY, 4, 4);
+        if(Math.abs(x - WORLD_DOOR_X) < 1 && Math.abs(y - WORLD_DOOR_Y) < 1) {
+          mCtx.fillStyle = '#000'; mCtx.fillRect(drawX, drawY, 6, 6); mCtx.strokeStyle = '#c49a5b'; mCtx.strokeRect(drawX, drawY, 6, 6);
         }
       }
     }
   }
-  mCtx.fillStyle = '#fff'; mCtx.beginPath(); mCtx.arc(80, 80, 3, 0, Math.PI * 2); mCtx.fill();
+  mCtx.fillStyle = '#fff'; mCtx.beginPath(); mCtx.arc(80, 80, 3, 0, Math.PI*2); mCtx.fill();
 }
 
 function renderWorldMap() {
   const wCanv = document.getElementById('macroMapCanvas'); const panel = document.querySelector('.map-body');
-  if (!panel.clientWidth || !panel.clientHeight) return;
-  wCanv.width = panel.clientWidth; wCanv.height = panel.clientHeight; const wCtx = wCanv.getContext('2d'); wCtx.clearRect(0, 0, wCanv.width, wCanv.height);
+  wCanv.width = panel.clientWidth; wCanv.height = panel.clientHeight; const wCtx = wCanv.getContext('2d'); wCtx.clearRect(0,0, wCanv.width, wCanv.height);
   const cx = wCanv.width / 2; const cy = wCanv.height / 2; const scale = STATE.mapZoom;
-
   STATE.explored.forEach(tileKey => {
-    let [x, y] = tileKey.split(',').map(Number); 
-    let drawX = cx + (x - player.worldX) * scale; 
+    let [x, y] = tileKey.split(',').map(Number);
+    let drawX = cx + (x - player.worldX) * scale;
     let drawY = cy + (y - player.worldY) * scale;
-    if (drawX > -10 && drawX < wCanv.width + 10 && drawY > -10 && drawY < wCanv.height + 10) { 
-      let tile = getProceduralTile(x, y);
-      wCtx.fillStyle = tile.color; 
-      wCtx.fillRect(drawX, drawY, Math.max(1, 4 * scale), Math.max(1, 4 * scale)); 
+    if(drawX > -10 && drawX < wCanv.width + 10 && drawY > -10 && drawY < wCanv.height + 10) {
+      wCtx.fillStyle = getProceduralTile(x, y).toString();
+      wCtx.fillRect(drawX, drawY, Math.max(1, 4 * scale), Math.max(1, 4 * scale));
     }
   });
-
-  // Representación del Abrigo Rocoso en el Mapa Macro
-  if (STATE.explored.has(Math.floor(WORLD_DOOR_X) + "," + Math.floor(WORLD_DOOR_Y))) { 
-    let doorX = cx + (WORLD_DOOR_X - player.worldX) * scale; 
-    let doorY = cy + (WORLD_DOOR_Y - player.worldY) * scale; 
-    
-    wCtx.fillStyle = 'rgba(31, 26, 22, 0.85)';
-    wCtx.strokeStyle = '#c49a5b';
-    wCtx.lineWidth = 1.5;
-    let caveSize = Math.max(6, 10 * scale);
-    wCtx.fillRect(doorX - caveSize, doorY - caveSize / 2, caveSize, caveSize);
-    wCtx.strokeRect(doorX - caveSize, doorY - caveSize / 2, caveSize, caveSize);
-
-    wCtx.fillStyle = '#c49a5b';
-    wCtx.font = '11px Georgia';
-    wCtx.fillText("Abrigo Rocoso", doorX - caveSize - 10, doorY - caveSize / 2 - 6);
-
-    wCtx.fillStyle = '#c49a5b'; 
-    wCtx.beginPath(); 
-    wCtx.arc(doorX, doorY, Math.max(3, 6 * scale), 0, Math.PI * 2); 
-    wCtx.fill(); 
+  if (STATE.explored.has(Math.floor(WORLD_DOOR_X)+","+Math.floor(WORLD_DOOR_Y))) {
+    let doorX = cx + (WORLD_DOOR_X - player.worldX) * scale;
+    let doorY = cy + (WORLD_DOOR_Y - player.worldY) * scale;
+    wCtx.fillStyle = '#c49a5b'; wCtx.beginPath(); wCtx.arc(doorX, doorY, Math.max(3, 10*scale), 0, Math.PI*2); wCtx.fill();
   }
-
-  // Posición del Jugador
-  wCtx.fillStyle = '#fff'; wCtx.beginPath(); wCtx.arc(cx, cy, Math.max(3, 6 * scale), 0, Math.PI * 2); wCtx.fill(); wCtx.strokeStyle = '#000'; wCtx.stroke();
+  wCtx.fillStyle = '#fff'; wCtx.beginPath(); wCtx.arc(cx, cy, Math.max(3, 8*scale), 0, Math.PI*2); wCtx.fill(); wCtx.strokeStyle = '#000'; wCtx.stroke();
 }
 
 function gameLoop(time) {
-  if (!canvas) { requestAnimationFrame(gameLoop); return; }
-  
-  if (STATE.mapOpen) {
-    renderWorldMap();
-  }
+  if (!canvas) return;
+  let isClimbing = false;
+  let maxStamina = STATE.stam || 100;
 
-  if (!STATE.invOpen && !STATE.mapOpen && !isTransitioning) {
-    let dx = 0, dy = 0; 
-    if (keys['w']) { dx -= 1; dy -= 1; } 
-    if (keys['s']) { dx += 1; dy += 1; } 
-    if (keys['a']) { dx -= 1; dy += 1; } 
-    if (keys['d']) { dx += 1; dy -= 1; }
+  if (!STATE.invOpen && !STATE.mapOpen) {
+    let dx = 0, dy = 0;
+    if (keys['w']) { dx -= 1; dy -= 1; }
+    if (keys['s']) { dx += 1; dy += 1; }
+    if (keys['a']) { dx -= 1; dy += 1; }
+    if (keys['d']) { dx += 1; dy += 1; }
     
     player.isMoving = (dx !== 0 || dy !== 0);
-    
+
     if (player.isMoving) {
-      let screenDx = (dx - dy); 
-      let screenDy = (dx + dy); 
+      let screenDx = (dx - dy);
+      let screenDy = (dx + dy);
       player.angle = Math.atan2(screenDy, screenDx);
-      
-      let length = Math.sqrt(dx * dx + dy * dy); 
-      let moveSpeed = (player.currentSpeed !== undefined) ? player.currentSpeed : player.speed;
-      let nextX = player.worldX + (dx / length) * (moveSpeed / 10); 
-      let nextY = player.worldY + (dy / length) * (moveSpeed / 10);
-      
+      let length = Math.sqrt(dx * dx + dy * dy);
+
       if (inCave) {
-        let allowedX = nextX;
-        let allowedY = nextY;
-        if (allowedX < 0.5) allowedX = 0.5;
-        if (allowedY < 0.5) allowedY = 0.5;
-        if (allowedY > 9.5) allowedY = 9.5;
-
-        if (allowedX > 9.5) {
-          if (allowedY >= 3.8 && allowedY <= 6.2) { 
-            transitionZone(); 
-          } else { 
-            allowedX = 9.5; 
-          }
-        }
-        player.worldX = allowedX; 
-        player.worldY = allowedY;
+        let step = (player.speed / 10);
+        let nextX = player.worldX + (dx / length) * step;
+        let nextY = player.worldY + (dy / length) * step;
+        if(nextX < 0) nextX = 0; if(nextY < 0) nextY = 0; if(nextY > 10) nextY = 10;
+        if(nextX > 9.5) { if(nextY >= 4 && nextY <= 6) { transitionZone(); return; } else { nextX = 9.5; } }
+        player.worldX = nextX; player.worldY = nextY;
       } else {
-        let tile = getProceduralTile(nextX, nextY);
+        let currTile = getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY));
+        let step = (player.speed * currTile.speedMod / 10);
+        let nextX = player.worldX + (dx / length) * step;
+        let nextY = player.worldY + (dy / length) * step;
+        let destTile = getProceduralTile(Math.floor(nextX), Math.floor(nextY));
 
-        // Bloqueo físico en aguas profundas (Zona Alta) o Cumbres Glaciares (Alta Montaña)
-        if (tile.waterZone === 'deep' && !player.hasBoat) {
-          showNotification("Aguas oceánicas profundas. Necesitas una embarcación.");
-        } else if (tile.mountainZone === 'peak') {
-          showNotification("Cumbre escarpada infranqueable. Busca un paso de montaña.");
-        } else {
-          if (Math.abs(nextX - WORLD_DOOR_X) < 0.9 && Math.abs(nextY - WORLD_DOOR_Y) < 0.9) { 
-            transitionZone(); 
+        let deltaCota = destTile.cota - currTile.cota;
+        let canMove = true;
+
+        if (destTile.blocked) {
+          canMove = false; // Océano, río hondo o pico 8
+        } else if (deltaCota >= 3) {
+          canMove = false; // Pared vertical insalvable
+        } else if (deltaCota === 2) {
+          // Escalada de risco: consume resuello
+          if (currentStamReal >= 12) {
+            isClimbing = true;
+            currentStamReal -= 0.35;
+            nextX = player.worldX + (dx / length) * (step * 0.45);
+            nextY = player.worldY + (dy / length) * (step * 0.45);
           } else {
-            player.worldX = nextX; 
-            player.worldY = nextY;
-            player.waterZone = tile.waterZone;
-            player.mountainZone = tile.mountainZone;
+            canMove = false; // Agotado para escalar
+            showNotification("Sin resuello para trepar.");
+          }
+        } else if (deltaCota <= -2) {
+          // Caída por desnivel pronunciado
+          if (player.z === 0) player.vz = -2;
+        }
 
-            // Físicas Acuáticas y Orográficas
-            if (tile.waterZone === 'shallow') {
-              player.currentSpeed = player.speed * 0.65; // Vado a pie
-              player.sinkOffset = 8;
-              player.isSwimming = false;
-            } else if (tile.waterZone === 'mid_low') {
-              player.currentSpeed = player.speed * 0.50; // Nado superficial
-              player.sinkOffset = 24;
-              player.isSwimming = true;
-            } else if (tile.waterZone === 'mid') {
-              player.currentSpeed = player.speed * 0.45; // Nado en agua abierta
-              player.sinkOffset = 30;
-              player.isSwimming = true;
-            } else if (tile.waterZone === 'deep' && player.hasBoat) {
-              player.currentSpeed = player.speed * 1.30; // Navegación
-              player.sinkOffset = 0;
-              player.isSwimming = false;
-            } else if (tile.mountainZone === 'hills') {
-              player.currentSpeed = player.speed * 0.75; // Ascenso por colinas
-              player.sinkOffset = -10;                   // Elevación visual en ladera
-              player.isSwimming = false;
-            } else if (tile.mountainZone === 'mountain') {
-              player.currentSpeed = player.speed * 0.50; // Escarpado de media montaña
-              player.sinkOffset = -22;                   // Elevación visual en risco
-              player.isSwimming = false;
-            } else {
-              player.currentSpeed = player.speed;
-              player.sinkOffset = 0;
-              player.isSwimming = false;
-            }
-
-            // Revelar Niebla de Guerra (radio 8 baldosas)
-            let px = Math.floor(player.worldX);
-            let py = Math.floor(player.worldY);
-            for (let ex = px - 8; ex <= px + 8; ex++) {
-              for (let ey = py - 8; ey <= py + 8; ey++) {
-                if (Math.hypot(ex - player.worldX, ey - player.worldY) <= 8) {
-                  STATE.explored.add(ex + "," + ey);
-                }
-              }
+        if (canMove) {
+          if (Math.abs(nextX - WORLD_DOOR_X) < 1 && Math.abs(nextY - WORLD_DOOR_Y) < 1) {
+            transitionZone(); return;
+          }
+          player.worldX = nextX;
+          player.worldY = nextY;
+          for(let ex = Math.floor(player.worldX) - 8; ex < player.worldX + 8; ex++) {
+            for(let ey = Math.floor(player.worldY) - 8; ey < player.worldY + 8; ey++) {
+              if(Math.hypot(ex - player.worldX, ey - player.worldY) < 8) STATE.explored.add(ex + "," + ey);
             }
           }
         }
       }
     }
-    if (keys[' '] && player.z === 0 && !player.isSwimming) player.vz = JUMP_FORCE;
-  } else { 
-    player.isMoving = false; 
+
+    if (keys[' '] && player.z === 0) player.vz = JUMP_FORCE;
+  } else {
+    player.isMoving = false;
   }
-  
-  player.z += player.vz; 
-  if (player.z > 0) player.vz -= GRAVITY; 
-  else { player.z = 0; player.vz = 0; }
-  
-  if (!inCave && !STATE.invOpen && !STATE.mapOpen && Math.floor(time) % 10 < 2) drawMinimap(); 
 
-  let camX = (player.worldX - player.worldY) * (TILE_W / 2); 
-  let camY = (player.worldX + player.worldY) * (TILE_H / 2);
-  ctx.fillStyle = '#020202'; 
-  ctx.fillRect(0, 0, width, height); 
-  const cx = width / 2; 
-  const cy = height / 2 - 50;
+  // Regeneración pasiva de Resuello
+  if (!isClimbing && currentStamReal < maxStamina) {
+    currentStamReal = Math.min(maxStamina, currentStamReal + 0.15);
+  }
 
-  const startX = Math.floor(player.worldX) - 16; 
-  const endX = startX + 32; 
-  const startY = Math.floor(player.worldY) - 16; 
-  const endY = startY + 32;
+  player.z += player.vz;
+  if (player.z > 0) player.vz -= GRAVITY; else { player.z = 0; player.vz = 0; }
+  if (!inCave && !STATE.invOpen && !STATE.mapOpen && Math.floor(time) % 10 < 2) drawMinimap();
 
-  for (let x = startX; x < endX; x++) {
-    for (let y = startY; y < endY; y++) {
-      if (!inCave && !STATE.explored.has(x + "," + y)) continue; 
-      let tile = inCave ? { color: getCaveTile(x, y), mountainZone: 'none' } : getProceduralTile(x, y);
-      let tileColor = tile ? tile.color : null;
-      if (!tileColor) continue; 
-      
-      const sx = (x - y) * (TILE_W / 2) - camX + cx; 
-      const sy = (x + y) * (TILE_H / 2) - camY + cy;
-      if (sx < -TILE_W || sx > width + TILE_W || sy < -TILE_H - 80 || sy > height + TILE_H) continue;
-      
-      ctx.beginPath(); 
-      ctx.moveTo(sx, sy - TILE_H / 2); 
-      ctx.lineTo(sx + TILE_W / 2, sy); 
-      ctx.lineTo(sx, sy + TILE_H / 2); 
-      ctx.lineTo(sx - TILE_W / 2, sy); 
-      ctx.closePath();
-      ctx.fillStyle = tileColor; 
-      ctx.fill(); 
-      ctx.strokeStyle = inCave ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.08)'; 
-      ctx.stroke();
+  // Cámara centrada y ajustada a la cota del jugador
+  let playerTile = inCave ? { cota: 0 } : getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY));
+  let camElevOffset = (playerTile.cota || 0) * STEP_Y;
+  let camX = (player.worldX - player.worldY) * (TILE_W / 2);
+  let camY = (player.worldX + player.worldY) * (TILE_H / 2) - camElevOffset;
 
-      // Si es terreno montañoso en el exterior, levantar relieve 2.5D
-      if (!inCave && tile.mountainZone && tile.mountainZone !== 'none') {
-        drawMountainRelief(ctx, sx, sy, tile);
+  ctx.fillStyle = '#020202'; ctx.fillRect(0, 0, width, height);
+  const cx = width / 2; const cy = height / 2 - 50;
+
+  const startX = Math.floor(player.worldX) - 15; const endX = startX + 30;
+  const startY = Math.floor(player.worldY) - 15; const endY = startY + 30;
+
+  // --- RENDERIZADO 2.5D: TRAVERSAL DIAGONAL ATRÁS -> ADELANTE ---
+  for (let d = startX + startY; d <= endX + endY; d++) {
+    for (let x = startX; x <= endX; x++) {
+      let y = d - x;
+      if (y < startY || y > endY) continue;
+
+      let tile = inCave ? { color: getCaveTile(x, y), cota: 0 } : getProceduralTile(x, y);
+      if (!tile || !tile.color) continue;
+      if (!inCave && !STATE.explored.has(x + "," + y)) continue;
+
+      let cota = tile.cota || 0;
+      let elevY = cota * STEP_Y;
+      const baseSx = (x - y) * (TILE_W / 2) - camX + cx;
+      const baseSy = (x + y) * (TILE_H / 2) - camY + cy;
+      const topSy = baseSy - elevY;
+
+      if (baseSx < -TILE_W || baseSx > width + TILE_W || topSy < -TILE_H - 80 || baseSy > height + TILE_H) continue;
+
+      // Paredes de bloque / Riscos frontales si la cota es superior a 0
+      if (cota > 0 && !inCave) {
+        // Cara Sudoeste (Sombra acusada)
+        ctx.beginPath();
+        ctx.moveTo(baseSx - TILE_W / 2, topSy);
+        ctx.lineTo(baseSx, topSy + TILE_H / 2);
+        ctx.lineTo(baseSx, baseSy + TILE_H / 2);
+        ctx.lineTo(baseSx - TILE_W / 2, baseSy);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(15, 12, 10, 0.45)';
+        ctx.fill();
+
+        // Cara Sudeste (Sombra media)
+        ctx.beginPath();
+        ctx.moveTo(baseSx, topSy + TILE_H / 2);
+        ctx.lineTo(baseSx + TILE_W / 2, topSy);
+        ctx.lineTo(baseSx + TILE_W / 2, baseSy);
+        ctx.lineTo(baseSx, baseSy + TILE_H / 2);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(25, 20, 16, 0.25)';
+        ctx.fill();
       }
+
+      // Rombo superior de la baldosa levantada
+      ctx.beginPath();
+      ctx.moveTo(baseSx, topSy - TILE_H / 2);
+      ctx.lineTo(baseSx + TILE_W / 2, topSy);
+      ctx.lineTo(baseSx, topSy + TILE_H / 2);
+      ctx.lineTo(baseSx - TILE_W / 2, topSy);
+      ctx.closePath();
+      ctx.fillStyle = tile.color;
+      ctx.fill();
+      ctx.strokeStyle = inCave ? 'rgba(0,0,0,0.4)' : (cota >= 6 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)');
+      ctx.stroke();
     }
   }
 
-  // Monolito en el exterior
-  if (!inCave && STATE.explored.has(Math.floor(WORLD_DOOR_X) + "," + Math.floor(WORLD_DOOR_Y))) { 
-    const doorSx = (WORLD_DOOR_X - WORLD_DOOR_Y) * (TILE_W / 2) - camX + cx; 
-    const doorSy = (WORLD_DOOR_X + WORLD_DOOR_Y) * (TILE_H / 2) - camY + cy; 
-    ctx.fillStyle = '#0a0806'; 
-    ctx.fillRect(doorSx - 25, doorSy - 70, 50, 70); 
-    ctx.strokeStyle = '#c49a5b'; 
-    ctx.lineWidth = 2; 
-    ctx.strokeRect(doorSx - 25, doorSy - 70, 50, 70);
+  // Monolito de Retorno
+  if (!inCave && STATE.explored.has(Math.floor(WORLD_DOOR_X) + "," + Math.floor(WORLD_DOOR_Y))) {
+    let doorTile = getProceduralTile(Math.floor(WORLD_DOOR_X), Math.floor(WORLD_DOOR_Y));
+    const doorSx = (WORLD_DOOR_X - WORLD_DOOR_Y) * (TILE_W / 2) - camX + cx;
+    const doorSy = (WORLD_DOOR_X + WORLD_DOOR_Y) * (TILE_H / 2) - (doorTile.cota * STEP_Y) - camY + cy;
+    ctx.fillStyle = '#0a0806'; ctx.fillRect(doorSx - 25, doorSy - 70, 50, 70);
+    ctx.strokeStyle = '#c49a5b'; ctx.lineWidth = 2; ctx.strokeRect(doorSx - 25, doorSy - 70, 50, 70);
   }
-  
-  // Objetos en el suelo
+
+  // Botín en el Suelo
   WORLD_ITEMS.forEach(item => {
     if (item.inCave === inCave) {
       if (!inCave && !STATE.explored.has(Math.floor(item.worldX) + "," + Math.floor(item.worldY))) return;
-      const sx = (item.worldX - item.worldY) * (TILE_W / 2) - camX + cx; 
-      const sy = (item.worldX + item.worldY) * (TILE_H / 2) - camY + cy; 
+      let itemTile = inCave ? { cota: 0 } : getProceduralTile(Math.floor(item.worldX), Math.floor(item.worldY));
+      const sx = (item.worldX - item.worldY) * (TILE_W / 2) - camX + cx;
+      const sy = (item.worldX + item.worldY) * (TILE_H / 2) - (itemTile.cota * STEP_Y) - camY + cy;
       drawWorldItem(ctx, item, sx, sy);
     }
   });
 
-  // NPCs dentro de la cueva
+  // Hoguera y NPCs en el Abrigo Rocoso
   if (inCave) {
-    const npcs = [
-      { x: 6, y: 4, skin: '#c29b7a', cloth: '#3d3a35', phase: 0 }, 
-      { x: 7, y: 6, skin: '#a67246', cloth: '#4a3222', phase: 1 }, 
-      { x: 5, y: 7, skin: '#855127', cloth: '#3a271d', phase: 2 }
-    ];
-    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; 
-    const fireY = (6 + 5) * (TILE_H / 2) - camY + cy; 
-    ctx.fillStyle = '#1c100b'; 
-    ctx.fillRect(fireX - 15, fireY - 10, 30, 10);
-    const fireHeight = 20 + Math.sin(time * 0.02) * 5; 
-    ctx.fillStyle = '#e85c13'; 
-    ctx.beginPath(); 
-    ctx.moveTo(fireX, fireY - fireHeight - 10); 
-    ctx.lineTo(fireX + 10, fireY - 5); 
-    ctx.lineTo(fireX - 10, fireY - 5); 
-    ctx.fill();
-    
+    const npcs = [{x: 6, y: 4, skin: '#c29b7a', cloth: '#3d3a35', phase: 0}, {x: 7, y: 6, skin: '#a67246', cloth: '#4a3222', phase: 1}, {x: 5, y: 7, skin: '#855127', cloth: '#3a271d', phase: 2}];
+    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; const fireY = (6 + 5) * (TILE_H / 2) - camY + cy;
+    ctx.fillStyle = '#1c100b'; ctx.fillRect(fireX - 15, fireY - 10, 30, 10);
+    const fireHeight = 20 + Math.sin(time * 0.02) * 5; ctx.fillStyle = '#e85c13'; ctx.beginPath(); ctx.moveTo(fireX, fireY - fireHeight - 10); ctx.lineTo(fireX + 10, fireY - 5); ctx.lineTo(fireX - 10, fireY - 5); ctx.fill();
     npcs.forEach(npc => {
-      const nx = (npc.x - npc.y) * (TILE_W / 2) - camX + cx; 
-      const ny = (npc.x + npc.y) * (TILE_H / 2) - camY + cy;
-      ctx.fillStyle = 'rgba(0,0,0,0.5)'; 
-      ctx.beginPath(); 
-      ctx.ellipse(nx, ny, 16, 8, 0, 0, Math.PI * 2); 
-      ctx.fill(); 
+      const nx = (npc.x - npc.y) * (TILE_W / 2) - camX + cx; const ny = (npc.x + npc.y) * (TILE_H / 2) - camY + cy;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(nx, ny, 16, 8, 0, 0, Math.PI * 2); ctx.fill(); 
       drawHumanoid(ctx, nx, ny, 0, npc.skin, npc.cloth, false, Math.PI / 2, time + (npc.phase * 1000));
     });
   }
 
-  // Sombra y personaje principal
-  let shadowScale = Math.max(0.4, 1 - (player.z / 80)); 
-  let baseCy = cy + ((!inCave && player.sinkOffset < 0) ? player.sinkOffset : 0);
-  ctx.fillStyle = 'rgba(0,0,0,0.6)'; 
-  ctx.beginPath(); 
-  ctx.ellipse(cx, baseCy, 20 * shadowScale, 10 * shadowScale, 0, 0, Math.PI * 2); 
-  ctx.fill();
-  
-  let pSkin = STATE.modelOpts[STATE.modelIdx]; 
+  // Jugador y Sombra Reactiva
+  let shadowScale = Math.max(0.4, 1 - (player.z / 80));
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.ellipse(cx, cy, 20 * shadowScale, 10 * shadowScale, 0, 0, Math.PI * 2); ctx.fill();
+  let pSkin = STATE.modelOpts[STATE.modelIdx];
   let pCloth = STATE.gear['pecho'] ? '#4d3d2e' : (STATE.gear['pantalon'] ? '#7a5a41' : 'transparent');
   drawHumanoid(ctx, cx, cy, player.z, pSkin, pCloth, player.isMoving, player.angle, time);
 
-  // Tooltip de objeto en el suelo
+  // Tooltip flotante de botín sobre el mundo
   if (hoveredWorldItem && !STATE.invOpen && !STATE.mapOpen) {
-    ctx.fillStyle = 'rgba(0,0,0,0.7)'; 
-    let txtW = ctx.measureText(hoveredWorldItem.item.name).width + 10; 
-    ctx.fillRect(hoveredWorldItem.x - txtW / 2, hoveredWorldItem.y - 35, txtW, 20); 
-    ctx.fillStyle = '#c49a5b'; 
-    ctx.font = '12px sans-serif'; 
-    ctx.textAlign = 'center'; 
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; let txtW = ctx.measureText(hoveredWorldItem.item.name).width + 10;
+    ctx.fillRect(hoveredWorldItem.x - txtW / 2, hoveredWorldItem.y - 35, txtW, 20);
+    ctx.fillStyle = '#c49a5b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(hoveredWorldItem.item.name, hoveredWorldItem.x, hoveredWorldItem.y - 21);
   }
 
-  // Capa de iluminación y atmósfera diferenciada (Cueva cerrada vs Mundo Exterior)
-  lightCtx.clearRect(0, 0, width, height);
-  lightCtx.globalCompositeOperation = 'source-over';
-  lightCtx.fillStyle = inCave ? 'rgba(4, 3, 2, 0.96)' : 'rgba(6, 8, 12, 0.55)'; 
-  lightCtx.fillRect(0, 0, width, height);
-  lightCtx.globalCompositeOperation = 'destination-out';
-  
-  const baseRadius = inCave ? 160 : 480;
-  const playerLight = baseRadius + Math.sin(time * 0.015) * 8; 
-  let visualY = cy - player.z;
-  const pGrad = lightCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight); 
-  pGrad.addColorStop(0, 'rgba(255,255,255,1)'); 
-  pGrad.addColorStop(0.55, 'rgba(255,255,255,0.65)'); 
-  pGrad.addColorStop(1, 'rgba(255,255,255,0)');
-  lightCtx.fillStyle = pGrad; 
-  lightCtx.beginPath(); 
-  lightCtx.arc(cx, visualY - 20, playerLight, 0, Math.PI * 2); 
-  lightCtx.fill();
+  // Iluminación Dinámica
+  const darkOverlay = document.createElement('canvas'); darkOverlay.width = width; darkOverlay.height = height; const dCtx = darkOverlay.getContext('2d');
+  dCtx.fillStyle = 'rgba(4, 3, 2, 0.97)'; dCtx.fillRect(0, 0, width, height);
+  dCtx.globalCompositeOperation = 'destination-out';
+  const playerLight = 150 + Math.sin(time * 0.015) * 8; let visualY = cy - player.z;
+  const pGrad = dCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight);
+  pGrad.addColorStop(0, 'rgba(255,255,255,1)'); pGrad.addColorStop(0.5, 'rgba(255,255,255,0.5)'); pGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  dCtx.fillStyle = pGrad; dCtx.beginPath(); dCtx.arc(cx, visualY - 20, playerLight, 0, Math.PI * 2); dCtx.fill();
 
   if (inCave) {
-    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; 
-    const fireY = (6 + 5) * (TILE_H / 2) - camY + cy; 
-    const fireLight = 350 + Math.sin(time * 0.01) * 15;
-    const fGrad = lightCtx.createRadialGradient(fireX, fireY - 10, 20, fireX, fireY - 10, fireLight); 
-    fGrad.addColorStop(0, 'rgba(255,255,255,1)'); 
-    fGrad.addColorStop(0.6, 'rgba(255,255,255,0.4)'); 
-    fGrad.addColorStop(1, 'rgba(255,255,255,0)'); 
-    lightCtx.fillStyle = fGrad; 
-    lightCtx.beginPath(); 
-    lightCtx.arc(fireX, fireY - 10, fireLight, 0, Math.PI * 2); 
-    lightCtx.fill();
+    const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; const fireY = (6 + 5) * (TILE_H / 2) - camY + cy; const fireLight = 350 + Math.sin(time * 0.01) * 15;
+    const fGrad = dCtx.createRadialGradient(fireX, fireY - 10, 20, fireX, fireY - 10, fireLight);
+    fGrad.addColorStop(0, 'rgba(255,255,255,1)'); fGrad.addColorStop(0.6, 'rgba(255,255,255,0.4)'); fGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    dCtx.fillStyle = fGrad; dCtx.beginPath(); dCtx.arc(fireX, fireY - 10, fireLight, 0, Math.PI * 2); dCtx.fill();
   }
-  
-  lightCtx.globalCompositeOperation = 'source-over';
-  const glow = lightCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight * 0.8); 
-  glow.addColorStop(0, inCave ? 'rgba(224, 123, 40, 0.15)' : 'rgba(224, 160, 80, 0.07)'); 
-  glow.addColorStop(1, 'rgba(224, 80, 20, 0)'); 
-  lightCtx.fillStyle = glow; 
-  lightCtx.beginPath(); 
-  lightCtx.arc(cx, visualY - 20, playerLight * 0.8, 0, Math.PI * 2); 
-  lightCtx.fill();
-  ctx.drawImage(lightCanvas, 0, 0);
+
+  dCtx.globalCompositeOperation = 'source-over';
+  const glow = dCtx.createRadialGradient(cx, visualY - 20, 10, cx, visualY - 20, playerLight * 0.8);
+  glow.addColorStop(0, 'rgba(224, 123, 40, 0.15)'); glow.addColorStop(1, 'rgba(224, 80, 20, 0)');
+  dCtx.fillStyle = glow; dCtx.beginPath(); dCtx.arc(cx, visualY - 20, playerLight * 0.8, 0, Math.PI * 2); dCtx.fill();
+  ctx.drawImage(darkOverlay, 0, 0);
 
   requestAnimationFrame(gameLoop);
 }
