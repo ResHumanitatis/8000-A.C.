@@ -728,13 +728,12 @@ function gameLoop(time) {
   let maxStamina = STATE.stam || 100;
 
   if (!STATE.invOpen && !STATE.mapOpen) {
-    // Lectura unificada WASD + Flechas direccionales
     let dx = 0, dy = 0;
     if (keys['w'] || keys['arrowup'])    { dx -= 1; dy -= 1; }
     if (keys['s'] || keys['arrowdown'])  { dx += 1; dy += 1; }
     if (keys['a'] || keys['arrowleft'])  { dx -= 1; dy += 1; }
     if (keys['d'] || keys['arrowright']) { dx += 1; dy -= 1; }
-
+    
     player.isMoving = (dx !== 0 || dy !== 0);
 
     if (player.isMoving) {
@@ -743,46 +742,63 @@ function gameLoop(time) {
       player.angle = Math.atan2(screenDy, screenDx);
       let length = Math.sqrt(dx * dx + dy * dy);
 
-    if (inCave) {
+      if (inCave) {
         let step = (player.speed / 10);
         let moveX = (dx / length) * step;
         let moveY = (dy / length) * step;
         let nextX = player.worldX + moveX;
         let nextY = player.worldY + moveY;
 
-        // Salida hacia el Mundo Exterior (flanco derecho de la cueva)
+        // Salida hacia el exterior por el flanco derecho
         if (nextX >= 9.0 && nextY <= 7.0) {
           transitionZone();
           return;
         }
 
-        // Deslizamiento fluido continuo contra paredes (impide bloqueos)
+        // Deslizamiento continuo (evita atascos al rozar paredes)
         player.worldX = Math.max(0.5, Math.min(9.2, nextX));
         player.worldY = Math.max(0.5, Math.min(9.5, nextY));
-      }
       } else {
-        // Movimiento en Mundo Exterior con físicas de cota y colisión
         let currTile = getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY));
         let step = (player.speed * (currTile.speedMod || 1.0) / 10);
-        let nextX = player.worldX + (dx / length) * step;
-        let nextY = player.worldY + (dy / length) * step;
+        let moveX = (dx / length) * step;
+        let moveY = (dy / length) * step;
+        let nextX = player.worldX + moveX;
+        let nextY = player.worldY + moveY;
         let destTile = getProceduralTile(Math.floor(nextX), Math.floor(nextY));
 
         let deltaCota = (destTile.cota || 0) - (currTile.cota || 0);
         let canMove = true;
 
-        if (destTile.blocked || deltaCota >= 3) {
+        if (destTile.blocked) {
+          canMove = false;
+        } else if (destTile.isWater) {
+          isSwimming = true;
+          if (destTile.waterDepth === 2) {
+            if (currentStamReal > 0) {
+              currentStamReal = Math.max(0, currentStamReal - 0.25);
+            } else {
+              STATE.hp = Math.max(0, STATE.hp - 0.1);
+              updateInventoryUI();
+              showNotification("¡Te estás ahogando por agotamiento!");
+            }
+          }
+        } else if (deltaCota >= 3) {
           canMove = false;
         } else if (deltaCota === 2) {
-          if (currentStamReal >= 12) {
+          if (currentStamReal >= 8) {
             isClimbing = true;
-            currentStamReal -= 0.35;
-            nextX = player.worldX + (dx / length) * (step * 0.45);
-            nextY = player.worldY + (dy / length) * (step * 0.45);
+            currentStamReal -= 0.30;
+            moveX *= 0.45;
+            moveY *= 0.45;
+            nextX = player.worldX + moveX;
+            nextY = player.worldY + moveY;
           } else {
             canMove = false;
             showNotification("Sin resuello para trepar.");
           }
+        } else if (deltaCota <= -2 && !destTile.isWater) {
+          if (player.z === 0) player.vz = -2;
         }
 
         if (canMove) {
@@ -792,24 +808,8 @@ function gameLoop(time) {
           }
           player.worldX = nextX;
           player.worldY = nextY;
-          for (let ex = Math.floor(player.worldX) - 8; ex < player.worldX + 8; ex++) {
-            for (let ey = Math.floor(player.worldY) - 8; ey < player.worldY + 8; ey++) {
-              if (Math.hypot(ex - player.worldX, ey - player.worldY) < 8) {
-                STATE.explored.add(ex + "," + ey);
-              }
-            }
-          }
-        }
-      }
-    }
-        if (canMove) {
-          if (Math.abs(nextX - WORLD_DOOR_X) < 1 && Math.abs(nextY - WORLD_DOOR_Y) < 1) {
-            transitionZone(); return;
-          }
-          player.worldX = nextX;
-          player.worldY = nextY;
         } else {
-          // Deslizamiento vectorial (evita atascos al andar contra pendientes)
+          // Deslizamiento vectorial tangencial
           let tileX = getProceduralTile(Math.floor(player.worldX + moveX), Math.floor(player.worldY));
           if (!tileX.blocked && (tileX.isWater || (tileX.cota - currTile.cota) < 3)) {
             player.worldX += moveX;
@@ -836,11 +836,9 @@ function gameLoop(time) {
     player.isMoving = false;
   }
 
-  // Comprobación de estado acuático en reposo
   let playerTileNow = inCave ? { cota: 0, isWater: false } : getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY));
   let inWater = !inCave && playerTileNow.isWater;
 
-  // Recuperación pasiva de Resuello en tierra o aguas tranquilas
   if (!isClimbing && (!inWater || playerTileNow.waterDepth < 2) && currentStamReal < maxStamina) {
     currentStamReal = Math.min(maxStamina, currentStamReal + 0.15);
   }
@@ -849,7 +847,6 @@ function gameLoop(time) {
   if (player.z > 0) player.vz -= GRAVITY; else { player.z = 0; player.vz = 0; }
   if (!inCave && !STATE.invOpen && !STATE.mapOpen && Math.floor(time) % 10 < 2) drawMinimap();
 
-  // Cámara centrada y ajustada a la cota del jugador
   let camElevOffset = (playerTileNow.cota || 0) * STEP_Y;
   let camX = (player.worldX - player.worldY) * (TILE_W / 2);
   let camY = (player.worldX + player.worldY) * (TILE_H / 2) - camElevOffset;
@@ -860,7 +857,6 @@ function gameLoop(time) {
   const startX = Math.floor(player.worldX) - 15; const endX = startX + 30;
   const startY = Math.floor(player.worldY) - 15; const endY = startY + 30;
 
-  // --- RENDERIZADO 2.5D: TRAVERSAL DIAGONAL ATRÁS -> ADELANTE ---
   for (let d = startX + startY; d <= endX + endY; d++) {
     for (let x = startX; x <= endX; x++) {
       let y = d - x;
@@ -878,7 +874,6 @@ function gameLoop(time) {
 
       if (baseSx < -TILE_W || baseSx > width + TILE_W || topSy < -TILE_H - 80 || baseSy > height + TILE_H) continue;
 
-      // Paredes de bloque / Riscos frontales si la cota es superior a 0
       if (cota > 0 && !inCave && !tile.isWater) {
         ctx.beginPath();
         ctx.moveTo(baseSx - TILE_W / 2, topSy);
@@ -899,7 +894,6 @@ function gameLoop(time) {
         ctx.fill();
       }
 
-      // Rombo superior de la baldosa levantada
       ctx.beginPath();
       ctx.moveTo(baseSx, topSy - TILE_H / 2);
       ctx.lineTo(baseSx + TILE_W / 2, topSy);
@@ -913,7 +907,6 @@ function gameLoop(time) {
     }
   }
 
-  // Monolito de Retorno
   if (!inCave && STATE.explored.has(Math.floor(WORLD_DOOR_X) + "," + Math.floor(WORLD_DOOR_Y))) {
     let doorTile = getProceduralTile(Math.floor(WORLD_DOOR_X), Math.floor(WORLD_DOOR_Y));
     const doorSx = (WORLD_DOOR_X - WORLD_DOOR_Y) * (TILE_W / 2) - camX + cx;
@@ -922,7 +915,6 @@ function gameLoop(time) {
     ctx.strokeStyle = '#c49a5b'; ctx.lineWidth = 2; ctx.strokeRect(doorSx - 25, doorSy - 70, 50, 70);
   }
 
-  // Botín en el Suelo
   WORLD_ITEMS.forEach(item => {
     if (item.inCave === inCave) {
       if (!inCave && !STATE.explored.has(Math.floor(item.worldX) + "," + Math.floor(item.worldY))) return;
@@ -933,7 +925,6 @@ function gameLoop(time) {
     }
   });
 
-  // Hoguera y NPCs en el Abrigo Rocoso
   if (inCave) {
     const npcs = [{x: 6, y: 4, skin: '#c29b7a', cloth: '#3d3a35', phase: 0}, {x: 7, y: 6, skin: '#a67246', cloth: '#4a3222', phase: 1}, {x: 5, y: 7, skin: '#855127', cloth: '#3a271d', phase: 2}];
     const fireX = (6 - 5) * (TILE_W / 2) - camX + cx; const fireY = (6 + 5) * (TILE_H / 2) - camY + cy;
@@ -946,7 +937,6 @@ function gameLoop(time) {
     });
   }
 
-  // Renderizado del Jugador: Ondas acuáticas o Sombra terrestre
   if (inWater) {
     let ripple = Math.sin(time * 0.008) * 3;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
@@ -965,7 +955,6 @@ function gameLoop(time) {
   let pCloth = STATE.gear['pecho'] ? '#4d3d2e' : (STATE.gear['pantalon'] ? '#7a5a41' : 'transparent');
   drawHumanoid(ctx, cx, cy, player.z, pSkin, pCloth, player.isMoving, player.angle, time, inWater);
 
-  // Tooltip flotante de botín sobre el mundo
   if (hoveredWorldItem && !STATE.invOpen && !STATE.mapOpen) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)'; let txtW = ctx.measureText(hoveredWorldItem.item.name).width + 10;
     ctx.fillRect(hoveredWorldItem.x - txtW / 2, hoveredWorldItem.y - 35, txtW, 20);
@@ -973,7 +962,6 @@ function gameLoop(time) {
     ctx.fillText(hoveredWorldItem.item.name, hoveredWorldItem.x, hoveredWorldItem.y - 21);
   }
 
-  // Iluminación Dinámica
   const darkOverlay = document.createElement('canvas'); darkOverlay.width = width; darkOverlay.height = height; const dCtx = darkOverlay.getContext('2d');
   dCtx.fillStyle = 'rgba(4, 3, 2, 0.97)'; dCtx.fillRect(0, 0, width, height);
   dCtx.globalCompositeOperation = 'destination-out';
