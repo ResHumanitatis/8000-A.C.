@@ -700,12 +700,13 @@ function gameLoop(time) {
   let maxStamina = STATE.stam || 100;
 
   if (!STATE.invOpen && !STATE.mapOpen) {
+    // Lectura unificada WASD + Flechas direccionales
     let dx = 0, dy = 0;
-    if (keys['w']) { dx -= 1; dy -= 1; }
-    if (keys['s']) { dx += 1; dy += 1; }
-    if (keys['a']) { dx -= 1; dy += 1; }
-    if (keys['d']) { dx += 1; dy += 1; }
-    
+    if (keys['w'] || keys['arrowup'])    { dx -= 1; dy -= 1; }
+    if (keys['s'] || keys['arrowdown'])  { dx += 1; dy += 1; }
+    if (keys['a'] || keys['arrowleft'])  { dx -= 1; dy += 1; }
+    if (keys['d'] || keys['arrowright']) { dx += 1; dy -= 1; }
+
     player.isMoving = (dx !== 0 || dy !== 0);
 
     if (player.isMoving) {
@@ -716,56 +717,69 @@ function gameLoop(time) {
 
       if (inCave) {
         let step = (player.speed / 10);
-        let nextX = player.worldX + (dx / length) * step;
-        let nextY = player.worldY + (dy / length) * step;
-        if(nextX < 0) nextX = 0; if(nextY < 0) nextY = 0; if(nextY > 10) nextY = 10;
-        if(nextX > 9.5) { if(nextY >= 4 && nextY <= 6) { transitionZone(); return; } else { nextX = 9.5; } }
-        player.worldX = nextX; player.worldY = nextY;
+        let moveX = (dx / length) * step;
+        let moveY = (dy / length) * step;
+        let nextX = player.worldX + moveX;
+        let nextY = player.worldY + moveY;
+
+        // Comprobación de umbral de salida hacia el exterior
+        if (nextX >= 9.2 && nextY >= 2.0 && nextY <= 8.0) {
+          transitionZone();
+          return;
+        }
+
+        // Deslizamiento independiente en X (evita bloqueo al chocar con esquinas)
+        if (nextX >= 0 && nextX <= 9.2) {
+          player.worldX = nextX;
+        }
+        
+        // Deslizamiento independiente en Y
+        if (nextY >= 0.5 && nextY <= 9.5) {
+          player.worldY = nextY;
+        }
       } else {
+        // Movimiento en Mundo Exterior con físicas de cota y colisión
         let currTile = getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY));
-        let step = (player.speed * currTile.speedMod / 10);
+        let step = (player.speed * (currTile.speedMod || 1.0) / 10);
         let nextX = player.worldX + (dx / length) * step;
         let nextY = player.worldY + (dy / length) * step;
         let destTile = getProceduralTile(Math.floor(nextX), Math.floor(nextY));
 
-        let deltaCota = destTile.cota - currTile.cota;
+        let deltaCota = (destTile.cota || 0) - (currTile.cota || 0);
         let canMove = true;
 
-        if (destTile.blocked) {
-          canMove = false; // Océano, río hondo o pico 8
-        } else if (deltaCota >= 3) {
-          canMove = false; // Pared vertical insalvable
+        if (destTile.blocked || deltaCota >= 3) {
+          canMove = false;
         } else if (deltaCota === 2) {
-          // Escalada de risco: consume resuello
           if (currentStamReal >= 12) {
             isClimbing = true;
             currentStamReal -= 0.35;
             nextX = player.worldX + (dx / length) * (step * 0.45);
             nextY = player.worldY + (dy / length) * (step * 0.45);
           } else {
-            canMove = false; // Agotado para escalar
+            canMove = false;
             showNotification("Sin resuello para trepar.");
           }
-        } else if (deltaCota <= -2) {
-          // Caída por desnivel pronunciado
-          if (player.z === 0) player.vz = -2;
         }
 
         if (canMove) {
           if (Math.abs(nextX - WORLD_DOOR_X) < 1 && Math.abs(nextY - WORLD_DOOR_Y) < 1) {
-            transitionZone(); return;
+            transitionZone();
+            return;
           }
           player.worldX = nextX;
           player.worldY = nextY;
-          for(let ex = Math.floor(player.worldX) - 8; ex < player.worldX + 8; ex++) {
-            for(let ey = Math.floor(player.worldY) - 8; ey < player.worldY + 8; ey++) {
-              if(Math.hypot(ex - player.worldX, ey - player.worldY) < 8) STATE.explored.add(ex + "," + ey);
+          for (let ex = Math.floor(player.worldX) - 8; ex < player.worldX + 8; ex++) {
+            for (let ey = Math.floor(player.worldY) - 8; ey < player.worldY + 8; ey++) {
+              if (Math.hypot(ex - player.worldX, ey - player.worldY) < 8) {
+                STATE.explored.add(ex + "," + ey);
+              }
             }
           }
         }
       }
     }
-
+ 
     if (keys[' '] && player.z === 0) player.vz = JUMP_FORCE;
   } else {
     player.isMoving = false;
