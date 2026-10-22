@@ -451,7 +451,7 @@ function updatePortrait() {
   pCtx.restore(); document.getElementById('inv-name-display').innerText = STATE.name.toUpperCase();
 }
 
-// --- MAPA PROCEDURAL CORE CON RELIEVE Y OROGRAFÍA PLANETARIA ---
+// --- MAPA PROCEDURAL CORE CON RELIEVE, RÍOS Y SISTEMA DE NATACIÓN ---
 function hash(x, y) { let h = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453; return h - Math.floor(h); }
 function noise(x, y) {
   let ix = Math.floor(x), iy = Math.floor(y);
@@ -466,15 +466,17 @@ function fbm(x, y, octs) {
   return v;
 }
 
-// Descriptor de baldosa con compatibilidad nativa de color para minimapa y macro canvas
-function Tile(color, cota, blocked, speedMod, isRiver, temp, moist) {
+// Descriptor de baldosa con compatibilidad nativa para Canvas, Minimapa y Físicas
+function Tile(color, cota, blocked, speedMod, isRiver, temp, moist, isWater, waterDepth) {
   this.color = color;
-  this.cota = cota;           // Escala 0 a 8
-  this.blocked = blocked;     // Colisión física infranqueable
-  this.speedMod = speedMod;   // Modificador de paso
-  this.isRiver = isRiver;     // Vado fluvial
+  this.cota = cota;                   // 0 a 8
+  this.blocked = blocked;             // Colisión física infranqueable (Mar abierto o Picos 8)
+  this.speedMod = speedMod;           // Modificador de avance
+  this.isRiver = isRiver;             // Indicador de cauce fluvial
   this.temp = temp;
   this.moist = moist;
+  this.isWater = isWater || false;    // Permite interacción acuática (Nadar/Vadear)
+  this.waterDepth = waterDepth || 0;  // 0=Tierra firme, 1=Aguas someras/Vado, 2=Nado profundo
 }
 Tile.prototype.toString = function() { return this.color; };
 
@@ -484,7 +486,6 @@ const STEP_Y = 6; // Píxeles de levantamiento vertical por cota en proyección 
 // Orografía planetaria determinista fija: Andes (Oeste) y Eje Alpino-Himalayo
 function getTectonicSpines(x, y) {
   let ridge = 0;
-  // Cordillera de los Andes (franja longitudinal pacífica en latitudes templadas/australes)
   if (y >= 6500 && y <= 18000) {
     let andesX = 2200 + Math.sin(y * 0.0006) * 450;
     let distAndes = Math.abs(x - andesX);
@@ -493,7 +494,6 @@ function getTectonicSpines(x, y) {
       ridge = Math.max(ridge, p * p * 0.45);
     }
   }
-  // Cinturón Alpino-Himalayo (franja latitudinal en latitudes medias boreales)
   if (y >= 6800 && y <= 9800 && x >= 7000 && x <= 15000) {
     let himalayaY = 8200 + Math.sin(x * 0.0005) * 350;
     let distHima = Math.abs(y - himalayaY);
@@ -515,7 +515,6 @@ function getProceduralTile(x, y) {
   let tempBase = 1.0 - Math.abs(lat);
   let temp = tempBase + (fbm(x * 0.05, y * 0.05, 2) * 0.3 - 0.15);
 
-  // Inyección de dorsales orográficas deterministas
   let elev = rawElev + getTectonicSpines(x, y);
 
   // Red hidrográfica continental por ruido de cresta
@@ -537,23 +536,25 @@ function getProceduralTile(x, y) {
   let cota = 0;
   let blocked = false;
   let speedMod = 1.0;
+  let isWater = false;
+  let waterDepth = 0;
 
-  // --- ESTRATIFICACIÓN TOPOGRÁFICA Y CROMÁTICA (8 COTAS) ---
-  if (elev < 0.35) {
-    // Cota 0: Océano Profundo (Infranqueable)
-    color = '#081c2e'; cota = 0; blocked = true;
+  // --- ESTRATIFICACIÓN TOPOGRÁFICA, CLIMÁTICA Y ACUÁTICA ---
+  if (elev < 0.30) {
+    // Cota 0: Océano Abisal / Mar Abierto Infinito (Barrera infranqueable por corrientes marinas)
+    color = '#081c2e'; cota = 0; blocked = true; isWater = true; waterDepth = 3;
   } else if (elev < 0.40) {
-    // Cota 0: Aguas Someras / Marismas (Infranqueable a pie)
-    color = '#1a3c54'; cota = 0; blocked = true;
+    // Cota 0: Aguas Costeras Someras / Marismas (Permite nadar y vadear libremente)
+    color = '#1a3c54'; cota = 0; blocked = false; isWater = true; waterDepth = 1; speedMod = 0.65;
   } else if (elev < 0.44) {
     // Cota 0: Litoral arenoso / Playa al nivel del mar
     color = '#8f8164'; cota = 0; speedMod = 0.9;
   } else if (isDeepRiver) {
-    // Cauce fluvial profundo (Barrera natural)
-    color = '#163952'; cota = 1; blocked = true;
+    // Cauce fluvial hondo (Permite cruzar nadando, requiere y gasta resuello)
+    color = '#163952'; cota = 1; blocked = false; isWater = true; waterDepth = 2; speedMod = 0.55;
   } else if (isShallowRiver) {
-    // Vado fluvial limoso (Paso practicable pero lento)
-    color = '#3d5e54'; cota = 1; speedMod = 0.5;
+    // Vado fluvial limoso (Paso practicable vadeando)
+    color = '#3d5e54'; cota = 1; blocked = false; isWater = true; waterDepth = 1; speedMod = 0.70;
   } else if (elev < 0.52) {
     // Cota 1: Vega / Llanura aluvial
     color = (moist > 0.5) ? '#384d2b' : '#555e3b';
@@ -573,19 +574,19 @@ function getProceduralTile(x, y) {
     color = '#615949'; cota = 4; speedMod = 0.85;
   } else if (elev < 0.82) {
     // Cota 5: Murallón kárstico escarpado
-    color = '#4f4a3f'; cota = 5; speedMod = 0.7;
+    color = '#4f4a3f'; cota = 5; speedMod = 0.75;
   } else if (elev < 0.89) {
     // Cota 6: Alta montaña / Canchal frío
-    color = '#423d38'; cota = 6; speedMod = 0.6;
+    color = '#423d38'; cota = 6; speedMod = 0.65;
   } else if (elev < 0.95) {
     // Cota 7: Nieves perpetuas y cornisas tardiglaciares
-    color = '#c5d3d6'; cota = 7; speedMod = 0.5;
+    color = '#c5d3d6'; cota = 7; speedMod = 0.55;
   } else {
     // Cota 8: Picos Inalcanzables (Everest, Chimborazo - Colisión Absoluta)
     color = '#e3edf0'; cota = 8; blocked = true;
   }
 
-  let tileObj = new Tile(color, cota, blocked, speedMod, (isDeepRiver || isShallowRiver), temp, moist);
+  let tileObj = new Tile(color, cota, blocked, speedMod, (isDeepRiver || isShallowRiver), temp, moist, isWater, waterDepth);
   tileCache.set(key, tileObj);
   return tileObj;
 }
@@ -628,20 +629,46 @@ function transitionZone() {
 
 function getCaveTile(x, y) { if(x >= 0 && x <= 10 && y >= 0 && y <= 10) return '#1f1a16'; return null; }
 
-function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset) {
-  let visualY = cy - z; let walkCycle = isMoving ? Math.sin(timeOffset * 0.015) : 0; let breathe = !isMoving ? Math.sin(timeOffset * 0.005) * 2 : 0;
+function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset, inWater) {
+  let visualY = cy - z + (inWater ? 14 : 0); // En agua el personaje se sumerge hasta el pecho
+  let walkCycle = isMoving ? Math.sin(timeOffset * (inWater ? 0.009 : 0.015)) : 0;
+  let breathe = !isMoving ? Math.sin(timeOffset * 0.005) * 2 : 0;
   let dirX = Math.cos(angle); let dirY = Math.sin(angle); cCtx.lineCap = "round";
-  let swing = walkCycle * 14; let lx = cx - 6, rx = cx + 6;
-  cCtx.lineWidth = 5; cCtx.strokeStyle = skin;
-  cCtx.beginPath(); cCtx.moveTo(lx, visualY - 20); cCtx.lineTo(lx + dirX * swing, visualY + dirY * swing * 0.5); cCtx.stroke();
-  cCtx.beginPath(); cCtx.moveTo(rx, visualY - 20); cCtx.lineTo(rx - dirX * swing, visualY - dirY * swing * 0.5); cCtx.stroke();
-  let lean = isMoving ? 3 : 0;
-  if(cloth !== 'transparent') { cCtx.fillStyle = cloth; cCtx.beginPath(); cCtx.moveTo(cx - 12 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 12 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 8, visualY - 18 + breathe); cCtx.lineTo(cx - 8, visualY - 18 + breathe); cCtx.fill(); } 
-  else { cCtx.fillStyle = skin; cCtx.beginPath(); cCtx.moveTo(cx - 10 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 10 + dirX*lean, visualY - 45 + breathe + dirY*lean); cCtx.lineTo(cx + 6, visualY - 18 + breathe); cCtx.lineTo(cx - 6, visualY - 18 + breathe); cCtx.fill(); }
+  let swing = walkCycle * (inWater ? 8 : 14); let lx = cx - 6, rx = cx + 6;
+
+  // Dibujar piernas solo si estamos en tierra firme
+  if (!inWater) {
+    cCtx.lineWidth = 5; cCtx.strokeStyle = skin;
+    cCtx.beginPath(); cCtx.moveTo(lx, visualY - 20); cCtx.lineTo(lx + dirX * swing, visualY + dirY * swing * 0.5); cCtx.stroke();
+    cCtx.beginPath(); cCtx.moveTo(rx, visualY - 20); cCtx.lineTo(rx - dirX * swing, visualY - dirY * swing * 0.5); cCtx.stroke();
+  }
+
+  let lean = isMoving ? (inWater ? 5 : 3) : 0;
+  if(cloth !== 'transparent') {
+    cCtx.fillStyle = cloth; cCtx.beginPath();
+    cCtx.moveTo(cx - 12 + dirX*lean, visualY - 45 + breathe + dirY*lean);
+    cCtx.lineTo(cx + 12 + dirX*lean, visualY - 45 + breathe + dirY*lean);
+    cCtx.lineTo(cx + 8, visualY - 18 + breathe);
+    cCtx.lineTo(cx - 8, visualY - 18 + breathe);
+    cCtx.fill();
+  } else {
+    cCtx.fillStyle = skin; cCtx.beginPath();
+    cCtx.moveTo(cx - 10 + dirX*lean, visualY - 45 + breathe + dirY*lean);
+    cCtx.lineTo(cx + 10 + dirX*lean, visualY - 45 + breathe + dirY*lean);
+    cCtx.lineTo(cx + 6, visualY - 18 + breathe);
+    cCtx.lineTo(cx - 6, visualY - 18 + breathe);
+    cCtx.fill();
+  }
+
+  // Brazos: si nada, ejecutan brazadas oscilatorias sobre la superficie
   cCtx.lineWidth = 4; cCtx.strokeStyle = skin;
-  cCtx.beginPath(); cCtx.moveTo(cx - 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx - 14 - dirX * swing, visualY - 18 - dirY * swing*0.5 + breathe); cCtx.stroke();
-  cCtx.beginPath(); cCtx.moveTo(cx + 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx + 14 + dirX * swing, visualY - 18 + dirY * swing*0.5 + breathe); cCtx.stroke();
-  cCtx.fillStyle = skin; let hx = cx + dirX * 4; let hy = visualY - 54 + breathe + dirY * 2; cCtx.beginPath(); cCtx.arc(hx, hy, 9, 0, Math.PI * 2); cCtx.fill();
+  let armSwing = inWater && isMoving ? Math.cos(timeOffset * 0.01) * 16 : swing;
+  cCtx.beginPath(); cCtx.moveTo(cx - 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx - 14 - dirX * armSwing, visualY - 18 - dirY * armSwing * 0.5 + breathe); cCtx.stroke();
+  cCtx.beginPath(); cCtx.moveTo(cx + 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx + 14 + dirX * armSwing, visualY - 18 + dirY * armSwing * 0.5 + breathe); cCtx.stroke();
+
+  // Cabeza y pelo
+  cCtx.fillStyle = skin; let hx = cx + dirX * 4; let hy = visualY - 54 + breathe + dirY * 2;
+  cCtx.beginPath(); cCtx.arc(hx, hy, 9, 0, Math.PI * 2); cCtx.fill();
   cCtx.fillStyle = '#111'; cCtx.beginPath(); cCtx.arc(hx, hy - 2, 9, Math.PI * 0.9, Math.PI * 2.1); cCtx.fill();
 }
 
@@ -697,16 +724,16 @@ function renderWorldMap() {
 function gameLoop(time) {
   if (!canvas) return;
   let isClimbing = false;
+  let isSwimming = false;
   let maxStamina = STATE.stam || 100;
 
   if (!STATE.invOpen && !STATE.mapOpen) {
-    // Lectura unificada WASD + Flechas direccionales
     let dx = 0, dy = 0;
     if (keys['w'] || keys['arrowup'])    { dx -= 1; dy -= 1; }
     if (keys['s'] || keys['arrowdown'])  { dx += 1; dy += 1; }
     if (keys['a'] || keys['arrowleft'])  { dx -= 1; dy += 1; }
-    if (keys['d'] || keys['arrowright']) { dx += 1; dy -= 1; }
-
+    if (keys['d'] || keys['arrowright']) { dx += 1; dy += 1; }
+    
     player.isMoving = (dx !== 0 || dy !== 0);
 
     if (player.isMoving) {
@@ -722,71 +749,98 @@ function gameLoop(time) {
         let nextX = player.worldX + moveX;
         let nextY = player.worldY + moveY;
 
-        // Comprobación de umbral de salida hacia el exterior
         if (nextX >= 9.2 && nextY >= 2.0 && nextY <= 8.0) {
-          transitionZone();
-          return;
+          transitionZone(); return;
         }
-
-        // Deslizamiento independiente en X (evita bloqueo al chocar con esquinas)
-        if (nextX >= 0 && nextX <= 9.2) {
-          player.worldX = nextX;
-        }
-        
-        // Deslizamiento independiente en Y
-        if (nextY >= 0.5 && nextY <= 9.5) {
-          player.worldY = nextY;
-        }
+        if (nextX >= 0 && nextX <= 9.2) player.worldX = nextX;
+        if (nextY >= 0.5 && nextY <= 9.5) player.worldY = nextY;
       } else {
-        // Movimiento en Mundo Exterior con físicas de cota y colisión
         let currTile = getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY));
         let step = (player.speed * (currTile.speedMod || 1.0) / 10);
-        let nextX = player.worldX + (dx / length) * step;
-        let nextY = player.worldY + (dy / length) * step;
+        let moveX = (dx / length) * step;
+        let moveY = (dy / length) * step;
+        let nextX = player.worldX + moveX;
+        let nextY = player.worldY + moveY;
         let destTile = getProceduralTile(Math.floor(nextX), Math.floor(nextY));
 
         let deltaCota = (destTile.cota || 0) - (currTile.cota || 0);
         let canMove = true;
 
-        if (destTile.blocked || deltaCota >= 3) {
+        if (destTile.blocked) {
           canMove = false;
+        } else if (destTile.isWater) {
+          // Desplazamiento acuático (Natación / Vadeo)
+          isSwimming = true;
+          if (destTile.waterDepth === 2) {
+            // Nado profundo: gasta resuello
+            if (currentStamReal > 0) {
+              currentStamReal = Math.max(0, currentStamReal - 0.25);
+            } else {
+              // Fatiga acuática: ahogamiento gradual
+              STATE.hp = Math.max(0, STATE.hp - 0.1);
+              updateInventoryUI();
+              showNotification("¡Te estás ahogando por agotamiento!");
+            }
+          }
+        } else if (deltaCota >= 3) {
+          canMove = false; // Risco infranqueable
         } else if (deltaCota === 2) {
-          if (currentStamReal >= 12) {
+          // Escalada de ladera rocosa
+          if (currentStamReal >= 8) {
             isClimbing = true;
-            currentStamReal -= 0.35;
-            nextX = player.worldX + (dx / length) * (step * 0.45);
-            nextY = player.worldY + (dy / length) * (step * 0.45);
+            currentStamReal -= 0.30;
+            moveX *= 0.45;
+            moveY *= 0.45;
+            nextX = player.worldX + moveX;
+            nextY = player.worldY + moveY;
           } else {
             canMove = false;
             showNotification("Sin resuello para trepar.");
           }
+        } else if (deltaCota <= -2 && !destTile.isWater) {
+          if (player.z === 0) player.vz = -2;
         }
 
         if (canMove) {
           if (Math.abs(nextX - WORLD_DOOR_X) < 1 && Math.abs(nextY - WORLD_DOOR_Y) < 1) {
-            transitionZone();
-            return;
+            transitionZone(); return;
           }
           player.worldX = nextX;
           player.worldY = nextY;
-          for (let ex = Math.floor(player.worldX) - 8; ex < player.worldX + 8; ex++) {
-            for (let ey = Math.floor(player.worldY) - 8; ey < player.worldY + 8; ey++) {
-              if (Math.hypot(ex - player.worldX, ey - player.worldY) < 8) {
-                STATE.explored.add(ex + "," + ey);
-              }
+        } else {
+          // Deslizamiento vectorial (evita atascos al andar contra pendientes)
+          let tileX = getProceduralTile(Math.floor(player.worldX + moveX), Math.floor(player.worldY));
+          if (!tileX.blocked && (tileX.isWater || (tileX.cota - currTile.cota) < 3)) {
+            player.worldX += moveX;
+          } else {
+            let tileY = getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY + moveY));
+            if (!tileY.blocked && (tileY.isWater || (tileY.cota - currTile.cota) < 3)) {
+              player.worldY += moveY;
+            }
+          }
+        }
+
+        for (let ex = Math.floor(player.worldX) - 8; ex < player.worldX + 8; ex++) {
+          for (let ey = Math.floor(player.worldY) - 8; ey < player.worldY + 8; ey++) {
+            if (Math.hypot(ex - player.worldX, ey - player.worldY) < 8) {
+              STATE.explored.add(ex + "," + ey);
             }
           }
         }
       }
     }
- 
-    if (keys[' '] && player.z === 0) player.vz = JUMP_FORCE;
+
+    if (keys[' '] && player.z === 0 && !isSwimming) player.vz = JUMP_FORCE;
   } else {
     player.isMoving = false;
   }
 
-  // Regeneración pasiva de Resuello
-  if (!isClimbing && currentStamReal < maxStamina) {
+  // Comprobación de estado acuático en reposo
+  let playerTileNow = inCave ? { cota: 0, isWater: false } : getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY));
+  let inWater = !inCave && playerTileNow.isWater;
+
+  // Recuperación pasiva de Resuello en tierra o aguas tranquilas
+  if (!isClimbing && (!inWater || playerTileNow.waterDepth < 2) && currentStamReal < maxStamina) {
     currentStamReal = Math.min(maxStamina, currentStamReal + 0.15);
   }
 
@@ -795,8 +849,7 @@ function gameLoop(time) {
   if (!inCave && !STATE.invOpen && !STATE.mapOpen && Math.floor(time) % 10 < 2) drawMinimap();
 
   // Cámara centrada y ajustada a la cota del jugador
-  let playerTile = inCave ? { cota: 0 } : getProceduralTile(Math.floor(player.worldX), Math.floor(player.worldY));
-  let camElevOffset = (playerTile.cota || 0) * STEP_Y;
+  let camElevOffset = (playerTileNow.cota || 0) * STEP_Y;
   let camX = (player.worldX - player.worldY) * (TILE_W / 2);
   let camY = (player.worldX + player.worldY) * (TILE_H / 2) - camElevOffset;
 
@@ -812,7 +865,7 @@ function gameLoop(time) {
       let y = d - x;
       if (y < startY || y > endY) continue;
 
-      let tile = inCave ? { color: getCaveTile(x, y), cota: 0 } : getProceduralTile(x, y);
+      let tile = inCave ? { color: getCaveTile(x, y), cota: 0, isWater: false } : getProceduralTile(x, y);
       if (!tile || !tile.color) continue;
       if (!inCave && !STATE.explored.has(x + "," + y)) continue;
 
@@ -825,8 +878,7 @@ function gameLoop(time) {
       if (baseSx < -TILE_W || baseSx > width + TILE_W || topSy < -TILE_H - 80 || baseSy > height + TILE_H) continue;
 
       // Paredes de bloque / Riscos frontales si la cota es superior a 0
-      if (cota > 0 && !inCave) {
-        // Cara Sudoeste (Sombra acusada)
+      if (cota > 0 && !inCave && !tile.isWater) {
         ctx.beginPath();
         ctx.moveTo(baseSx - TILE_W / 2, topSy);
         ctx.lineTo(baseSx, topSy + TILE_H / 2);
@@ -836,7 +888,6 @@ function gameLoop(time) {
         ctx.fillStyle = 'rgba(15, 12, 10, 0.45)';
         ctx.fill();
 
-        // Cara Sudeste (Sombra media)
         ctx.beginPath();
         ctx.moveTo(baseSx, topSy + TILE_H / 2);
         ctx.lineTo(baseSx + TILE_W / 2, topSy);
@@ -890,16 +941,28 @@ function gameLoop(time) {
     npcs.forEach(npc => {
       const nx = (npc.x - npc.y) * (TILE_W / 2) - camX + cx; const ny = (npc.x + npc.y) * (TILE_H / 2) - camY + cy;
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(nx, ny, 16, 8, 0, 0, Math.PI * 2); ctx.fill(); 
-      drawHumanoid(ctx, nx, ny, 0, npc.skin, npc.cloth, false, Math.PI / 2, time + (npc.phase * 1000));
+      drawHumanoid(ctx, nx, ny, 0, npc.skin, npc.cloth, false, Math.PI / 2, time + (npc.phase * 1000), false);
     });
   }
 
-  // Jugador y Sombra Reactiva
-  let shadowScale = Math.max(0.4, 1 - (player.z / 80));
-  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.ellipse(cx, cy, 20 * shadowScale, 10 * shadowScale, 0, 0, Math.PI * 2); ctx.fill();
+  // Renderizado del Jugador: Ondas acuáticas o Sombra terrestre
+  if (inWater) {
+    let ripple = Math.sin(time * 0.008) * 3;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - player.z + 5, 18 + ripple, 9 + ripple * 0.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    let shadowScale = Math.max(0.4, 1 - (player.z / 80));
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath();
+    ctx.ellipse(cx, cy, 20 * shadowScale, 10 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   let pSkin = STATE.modelOpts[STATE.modelIdx];
   let pCloth = STATE.gear['pecho'] ? '#4d3d2e' : (STATE.gear['pantalon'] ? '#7a5a41' : 'transparent');
-  drawHumanoid(ctx, cx, cy, player.z, pSkin, pCloth, player.isMoving, player.angle, time);
+  drawHumanoid(ctx, cx, cy, player.z, pSkin, pCloth, player.isMoving, player.angle, time, inWater);
 
   // Tooltip flotante de botín sobre el mundo
   if (hoveredWorldItem && !STATE.invOpen && !STATE.mapOpen) {
