@@ -730,48 +730,180 @@ function transitionZone() {
 function getCaveTile(x, y) { if(x >= 0 && x <= 10 && y >= 0 && y <= 10) return '#1f1a16'; return null; }
 
 function drawHumanoid(cCtx, cx, cy, z, skin, cloth, isMoving, angle, timeOffset, inWater) {
-  let visualY = cy - z + (inWater ? 14 : 0); // En agua el personaje se sumerge hasta el pecho
-  let walkCycle = isMoving ? Math.sin(timeOffset * (inWater ? 0.009 : 0.015)) : 0;
-  let breathe = !isMoving ? Math.sin(timeOffset * 0.005) * 2 : 0;
-  let dirX = Math.cos(angle); let dirY = Math.sin(angle); cCtx.lineCap = "round";
-  let swing = walkCycle * (inWater ? 8 : 14); let lx = cx - 6, rx = cx + 6;
+  // Personajes 2.5D: anatomía más legible, ropa de pieles y detalles de acabado.
+  const bob = isMoving ? Math.abs(Math.sin(timeOffset * 0.015)) * 2.2 : Math.sin(timeOffset * 0.005) * 0.8;
+  const visualY = cy - z + (inWater ? 13 : 0) + bob;
+  const walk = isMoving ? Math.sin(timeOffset * (inWater ? 0.009 : 0.015)) : 0;
+  const breathe = !isMoving ? Math.sin(timeOffset * 0.005) * 0.8 : 0;
+  const dirX = Math.cos(angle), dirY = Math.sin(angle);
+  const swing = walk * (inWater ? 5 : 8);
+  const skinShade = skin;
+  const skinLight = '#e2bd91';
+  const hair = '#30231b';
+  const outline = 'rgba(24,16,11,0.9)';
+  const tunic = cloth !== 'transparent' ? cloth : null;
+  const legY = visualY - 12 + breathe;
 
-  // Dibujar piernas solo si estamos en tierra firme
+  cCtx.save();
+  cCtx.lineCap = 'round';
+  cCtx.lineJoin = 'round';
+
+  // Sombra de contacto: mantiene al personaje anclado al suelo.
+  cCtx.fillStyle = 'rgba(0,0,0,0.28)';
+  cCtx.beginPath();
+  cCtx.ellipse(cx, cy + 2, 10, 4.5, 0, 0, Math.PI * 2);
+  cCtx.fill();
+
   if (!inWater) {
-    cCtx.lineWidth = 5; cCtx.strokeStyle = skin;
-    cCtx.beginPath(); cCtx.moveTo(lx, visualY - 20); cCtx.lineTo(lx + dirX * swing, visualY + dirY * swing * 0.5); cCtx.stroke();
-    cCtx.beginPath(); cCtx.moveTo(rx, visualY - 20); cCtx.lineTo(rx - dirX * swing, visualY - dirY * swing * 0.5); cCtx.stroke();
+    // Piernas separadas y pies visibles, con una pequeña animación al caminar.
+    cCtx.lineWidth = 4.2;
+    cCtx.strokeStyle = outline;
+    cCtx.beginPath();
+    cCtx.moveTo(cx - 4, legY);
+    cCtx.lineTo(cx - 4 + dirX * swing, visualY + 1 + dirY * swing * 0.35);
+    cCtx.moveTo(cx + 4, legY);
+    cCtx.lineTo(cx + 4 - dirX * swing, visualY + 1 - dirY * swing * 0.35);
+    cCtx.stroke();
+
+    cCtx.lineWidth = 2.7;
+    cCtx.strokeStyle = skinShade;
+    cCtx.beginPath();
+    cCtx.moveTo(cx - 4, legY);
+    cCtx.lineTo(cx - 4 + dirX * swing, visualY + 1 + dirY * swing * 0.35);
+    cCtx.moveTo(cx + 4, legY);
+    cCtx.lineTo(cx + 4 - dirX * swing, visualY + 1 - dirY * swing * 0.35);
+    cCtx.stroke();
+
+    cCtx.fillStyle = '#392a20';
+    cCtx.beginPath();
+    cCtx.ellipse(cx - 4 + dirX * swing, visualY + 1 + dirY * swing * 0.35, 3.2, 1.8, 0, 0, Math.PI * 2);
+    cCtx.ellipse(cx + 4 - dirX * swing, visualY + 1 - dirY * swing * 0.35, 3.2, 1.8, 0, 0, Math.PI * 2);
+    cCtx.fill();
   }
 
-  let lean = isMoving ? (inWater ? 5 : 3) : 0;
-  if(cloth !== 'transparent') {
-    cCtx.fillStyle = cloth; cCtx.beginPath();
-    cCtx.moveTo(cx - 12 + dirX*lean, visualY - 45 + breathe + dirY*lean);
-    cCtx.lineTo(cx + 12 + dirX*lean, visualY - 45 + breathe + dirY*lean);
-    cCtx.lineTo(cx + 8, visualY - 18 + breathe);
-    cCtx.lineTo(cx - 8, visualY - 18 + breathe);
+  // Brazos: contorno oscuro y volumen de piel.
+  const armSwing = inWater && isMoving ? Math.cos(timeOffset * 0.01) * 9 : swing * 0.7;
+  cCtx.lineWidth = 6;
+  cCtx.strokeStyle = outline;
+  cCtx.beginPath();
+  cCtx.moveTo(cx - 8, visualY - 37 + breathe);
+  cCtx.lineTo(cx - 12 - armSwing * 0.35, visualY - 20 + breathe);
+  cCtx.moveTo(cx + 8, visualY - 37 + breathe);
+  cCtx.lineTo(cx + 12 + armSwing * 0.35, visualY - 20 + breathe);
+  cCtx.stroke();
+  cCtx.lineWidth = 3.8;
+  cCtx.strokeStyle = skinShade;
+  cCtx.beginPath();
+  cCtx.moveTo(cx - 8, visualY - 37 + breathe);
+  cCtx.lineTo(cx - 12 - armSwing * 0.35, visualY - 20 + breathe);
+  cCtx.moveTo(cx + 8, visualY - 37 + breathe);
+  cCtx.lineTo(cx + 12 + armSwing * 0.35, visualY - 20 + breathe);
+  cCtx.stroke();
+
+  // Manos.
+  cCtx.fillStyle = skinShade;
+  cCtx.beginPath();
+  cCtx.arc(cx - 12 - armSwing * 0.35, visualY - 19 + breathe, 2.5, 0, Math.PI * 2);
+  cCtx.arc(cx + 12 + armSwing * 0.35, visualY - 19 + breathe, 2.5, 0, Math.PI * 2);
+  cCtx.fill();
+
+  // Torso con silueta de túnica de piel, ribete y cinturón.
+  cCtx.fillStyle = outline;
+  cCtx.beginPath();
+  cCtx.moveTo(cx - 9, visualY - 41 + breathe);
+  cCtx.quadraticCurveTo(cx, visualY - 45 + breathe, cx + 9, visualY - 41 + breathe);
+  cCtx.lineTo(cx + 9, visualY - 19 + breathe);
+  cCtx.lineTo(cx + 5, visualY - 16 + breathe);
+  cCtx.lineTo(cx - 5, visualY - 16 + breathe);
+  cCtx.lineTo(cx - 9, visualY - 19 + breathe);
+  cCtx.closePath();
+  cCtx.fill();
+
+  if (tunic) {
+    cCtx.fillStyle = tunic;
+    cCtx.beginPath();
+    cCtx.moveTo(cx - 7.5, visualY - 40 + breathe);
+    cCtx.quadraticCurveTo(cx, visualY - 43 + breathe, cx + 7.5, visualY - 40 + breathe);
+    cCtx.lineTo(cx + 7, visualY - 20 + breathe);
+    cCtx.lineTo(cx + 4.5, visualY - 18 + breathe);
+    cCtx.lineTo(cx - 4.5, visualY - 18 + breathe);
+    cCtx.lineTo(cx - 7, visualY - 20 + breathe);
+    cCtx.closePath();
     cCtx.fill();
+    cCtx.strokeStyle = 'rgba(235,203,155,0.35)';
+    cCtx.lineWidth = 1;
+    cCtx.beginPath();
+    cCtx.moveTo(cx - 5, visualY - 37 + breathe);
+    cCtx.lineTo(cx - 2, visualY - 20 + breathe);
+    cCtx.stroke();
+    cCtx.fillStyle = '#8b6944';
+    cCtx.fillRect(cx - 8, visualY - 25 + breathe, 16, 3);
+    cCtx.fillStyle = '#d0ad70';
+    cCtx.fillRect(cx - 1, visualY - 25 + breathe, 2, 3);
+    // Borde irregular inferior, como piel cosida.
+    cCtx.strokeStyle = 'rgba(31,20,13,0.65)';
+    cCtx.beginPath();
+    cCtx.moveTo(cx - 5, visualY - 18 + breathe);
+    cCtx.lineTo(cx - 2, visualY - 17 + breathe);
+    cCtx.lineTo(cx + 1, visualY - 18 + breathe);
+    cCtx.lineTo(cx + 4, visualY - 17 + breathe);
+    cCtx.stroke();
   } else {
-    cCtx.fillStyle = skin; cCtx.beginPath();
-    cCtx.moveTo(cx - 10 + dirX*lean, visualY - 45 + breathe + dirY*lean);
-    cCtx.lineTo(cx + 10 + dirX*lean, visualY - 45 + breathe + dirY*lean);
-    cCtx.lineTo(cx + 6, visualY - 18 + breathe);
-    cCtx.lineTo(cx - 6, visualY - 18 + breathe);
-    cCtx.fill();
+    // Personaje sin túnica: pecho y abdomen definidos sin perder legibilidad.
+    cCtx.fillStyle = skinShade;
+    cCtx.fillRect(cx - 5, visualY - 37 + breathe, 10, 18);
+    cCtx.strokeStyle = 'rgba(60,35,22,0.55)';
+    cCtx.lineWidth = 1;
+    cCtx.beginPath();
+    cCtx.moveTo(cx, visualY - 34 + breathe);
+    cCtx.lineTo(cx, visualY - 22 + breathe);
+    cCtx.stroke();
   }
 
-  // Brazos: si nada, ejecutan brazadas oscilatorias sobre la superficie
-  cCtx.lineWidth = 4; cCtx.strokeStyle = skin;
-  let armSwing = inWater && isMoving ? Math.cos(timeOffset * 0.01) * 16 : swing;
-  cCtx.beginPath(); cCtx.moveTo(cx - 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx - 14 - dirX * armSwing, visualY - 18 - dirY * armSwing * 0.5 + breathe); cCtx.stroke();
-  cCtx.beginPath(); cCtx.moveTo(cx + 11 + dirX*lean, visualY - 42 + breathe); cCtx.lineTo(cx + 14 + dirX * armSwing, visualY - 18 + dirY * armSwing * 0.5 + breathe); cCtx.stroke();
+  // Cuello y cabeza, ligeramente desplazada según la orientación.
+  cCtx.fillStyle = skinShade;
+  cCtx.fillRect(cx - 3, visualY - 46 + breathe, 6, 7);
+  const headX = cx + dirX * 1.2;
+  const headY = visualY - 51 + breathe;
+  cCtx.fillStyle = outline;
+  cCtx.beginPath();
+  cCtx.ellipse(headX, headY, 7.1, 8.1, 0, 0, Math.PI * 2);
+  cCtx.fill();
+  cCtx.fillStyle = skinShade;
+  cCtx.beginPath();
+  cCtx.ellipse(headX, headY + 0.5, 5.9, 6.9, 0, 0, Math.PI * 2);
+  cCtx.fill();
 
-  // Cabeza y pelo
-  cCtx.fillStyle = skin; let hx = cx + dirX * 4; let hy = visualY - 54 + breathe + dirY * 2;
-  cCtx.beginPath(); cCtx.arc(hx, hy, 9, 0, Math.PI * 2); cCtx.fill();
-  cCtx.fillStyle = '#111'; cCtx.beginPath(); cCtx.arc(hx, hy - 2, 9, Math.PI * 0.9, Math.PI * 2.1); cCtx.fill();
+  // Pelo corto y nuca; el perfil cambia con la dirección de movimiento.
+  cCtx.fillStyle = hair;
+  cCtx.beginPath();
+  cCtx.arc(headX, headY - 2.2, 6.2, Math.PI, Math.PI * 2);
+  cCtx.lineTo(headX + 5.8, headY + 1);
+  cCtx.quadraticCurveTo(headX, headY - 1, headX - 5.8, headY + 1);
+  cCtx.closePath();
+  cCtx.fill();
+
+  // Rasgos mínimos, visibles al acercarse: nariz, ojo y pómulo.
+  cCtx.fillStyle = 'rgba(40,24,17,0.85)';
+  const faceSide = dirX >= 0 ? 1 : -1;
+  cCtx.fillRect(headX + faceSide * 2.1, headY + 0.1, 1.3, 1.3);
+  cCtx.fillStyle = 'rgba(244,207,158,0.55)';
+  cCtx.fillRect(headX - 2.5, headY + 2.2, 2, 1);
+
+  // Mechones y pequeñas marcas de vestimenta para romper la apariencia de maniquí.
+  cCtx.strokeStyle = 'rgba(226,190,143,0.35)';
+  cCtx.lineWidth = 1;
+  cCtx.beginPath();
+  cCtx.moveTo(headX - 3, headY - 5);
+  cCtx.lineTo(headX - 1, headY - 7);
+  cCtx.stroke();
+
+  if (inWater) {
+    cCtx.fillStyle = 'rgba(20,45,48,0.22)';
+    cCtx.fillRect(cx - 11, visualY - 18, 22, 15);
+  }
+  cCtx.restore();
 }
-
 function drawWorldItem(cCtx, item, screenX, screenY) {
   cCtx.save(); cCtx.fillStyle = 'rgba(0,0,0,0.5)'; cCtx.beginPath(); cCtx.ellipse(screenX, screenY+5, 10, 5, 0, 0, Math.PI*2); cCtx.fill();
   cCtx.lineWidth = 1; cCtx.strokeStyle = '#fff';
