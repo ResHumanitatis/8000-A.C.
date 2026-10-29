@@ -110,6 +110,106 @@
   #global-tooltip h4 { color: #fff; font-size: 0.95rem; margin-bottom: 5px; }
   #global-tooltip .tt-stats { color: var(--text-gold); font-size: 0.8rem; margin-bottom: 8px; font-family: monospace; font-weight: bold; }
   #global-tooltip .tt-desc { color: var(--text-muted); font-size: 0.75rem; line-height: 1.3; }
+
+  /* Renovación visual inicial: materiales terrosos y paneles más suaves.
+     Solo afecta a la presentación; conserva IDs y eventos existentes. */
+  :root {
+    --ui-bg: #211d17;
+    --ui-border: #594a35;
+    --text-gold: #d7b477;
+    --text-muted: #b1a087;
+    --blood: #873d32;
+    --trance: #477d88;
+    --stone: #30291f;
+    --slot-bg: #15130f;
+  }
+  body { background: #171912; }
+  .screen {
+    background:
+      radial-gradient(ellipse at 50% 35%, rgba(105, 91, 57, 0.18), transparent 62%),
+      linear-gradient(145deg, #24241b, #11130f 72%);
+  }
+  h1 {
+    color: #e0c18b;
+    letter-spacing: 3px;
+    text-shadow: 0 3px 0 rgba(0,0,0,.35);
+  }
+  .card {
+    background: linear-gradient(145deg, rgba(54, 53, 39, .96), rgba(31, 31, 24, .98));
+    border: 1px solid #62533a;
+    border-radius: 10px;
+    box-shadow: 0 8px 20px rgba(0,0,0,.18);
+    transition: transform .18s ease, border-color .18s ease, background .18s ease;
+  }
+  .card:hover, .card.selected {
+    transform: translateY(-2px);
+    border-color: #d7b477;
+    background: linear-gradient(145deg, #494633, #292b20);
+    box-shadow: 0 10px 24px rgba(0,0,0,.28);
+  }
+  .btn, .inv-btn-hud, .zoom-btn {
+    border-radius: 8px;
+    border-color: #8c7650;
+    background: linear-gradient(180deg, #3b382a, #25251c);
+    color: #e0c18b;
+  }
+  .btn:hover:not(:disabled) {
+    background: #d7b477;
+    color: #201b13;
+  }
+  .char-layout, .inv-col, #world-map-panel, #inventory-panel {
+    border-color: #5c4d37;
+    border-radius: 12px;
+    box-shadow: 0 16px 42px rgba(0,0,0,.38);
+  }
+  .char-layout {
+    background: linear-gradient(145deg, #2c2a20, #1c1c16);
+  }
+  #ui-bottom {
+    height: 112px;
+    border-top: 1px solid #65543a;
+    background: linear-gradient(180deg, rgba(53,48,36,.94), rgba(25,24,18,.98));
+    box-shadow: 0 -8px 28px rgba(0,0,0,.35);
+  }
+  .orb-container {
+    border-color: #64543b;
+    box-shadow: inset 0 0 18px rgba(0,0,0,.65), 0 5px 16px rgba(0,0,0,.25);
+  }
+  #minimap-container {
+    border: 2px solid #8c7650;
+    box-shadow: 0 6px 20px rgba(0,0,0,.38);
+  }
+  #world-map-panel, #inventory-panel {
+    background: rgba(28, 26, 20, .97);
+  }
+  .map-header, .inv-col {
+    background-color: #28261d;
+  }
+  .slot, .bag-slot, .inventory-grid-area, .backpack-cell, .stat-line {
+    border-color: #4b4231;
+    background-color: #191811;
+  }
+  .item-card {
+    border-color: #8c7650;
+    background: linear-gradient(145deg, #3c3324, #211e17);
+  }
+  input[type="text"] {
+    border-radius: 6px;
+    border-color: #5b4d38;
+    background: #17160f;
+  }
+  button:focus-visible, input:focus-visible {
+    outline: 2px solid #e0c18b;
+    outline-offset: 3px;
+  }
+  @media (max-width: 700px) {
+    #ui-bottom { height: 94px; padding: 0 14px; }
+    .orb-container { width: 88px; height: 88px; border-width: 4px; }
+    #minimap-container { width: 128px; height: 128px; top: 12px; right: 12px; }
+    .char-layout { gap: 16px; padding: 16px; max-width: 96vw; }
+    .char-col { width: min(42vw, 300px); }
+  }
+
 </style>
 </head>
 <body>
@@ -902,7 +1002,50 @@ function gameLoop(time) {
       ctx.closePath();
       ctx.fillStyle = tile.color;
       ctx.fill();
-      ctx.strokeStyle = inCave ? 'rgba(0,0,0,0.4)' : (cota >= 6 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)');
+
+      // Facetas low-poly discretas: solo afectan a la representación, no a la baldosa física.
+      if (!inCave && !tile.isWater) {
+        const facetSeed = hash(x + 17, y - 31);
+        const midX = baseSx;
+        const midY = topSy;
+        ctx.save();
+        ctx.globalAlpha = cota >= 6 ? 0.13 : 0.09;
+        ctx.fillStyle = facetSeed > 0.5 ? '#f6d9a0' : '#17251b';
+        ctx.beginPath();
+        if (facetSeed > 0.5) {
+          ctx.moveTo(midX, midY - TILE_H / 2);
+          ctx.lineTo(midX + TILE_W / 2, midY);
+          ctx.lineTo(midX, midY + TILE_H / 2);
+        } else {
+          ctx.moveTo(midX, midY - TILE_H / 2);
+          ctx.lineTo(midX, midY + TILE_H / 2);
+          ctx.lineTo(midX - TILE_W / 2, midY);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        // Pequeñas marcas de hierba deterministas en terreno bajo; no generan entidades ni colisiones.
+        if (cota <= 2 && facetSeed > 0.78) {
+          const grassX = baseSx + (hash(x, y + 9) - 0.5) * 24;
+          const grassY = topSy + (hash(x + 4, y) - 0.5) * 10;
+          ctx.fillStyle = 'rgba(39, 67, 39, 0.48)';
+          ctx.beginPath();
+          ctx.moveTo(grassX - 3, grassY + 2);
+          ctx.lineTo(grassX, grassY - 4);
+          ctx.lineTo(grassX + 1, grassY + 2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(grassX, grassY + 2);
+          ctx.lineTo(grassX + 4, grassY - 2);
+          ctx.lineTo(grassX + 3, grassY + 3);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+
+      ctx.strokeStyle = inCave ? 'rgba(0,0,0,0.32)' : (cota >= 6 ? 'rgba(255,255,255,0.12)' : 'rgba(31,42,27,0.12)');
       ctx.stroke();
     }
   }
